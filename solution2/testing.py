@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, date
 pd.options.display.float_format = '{:,.4f}'.format
 
 # Inputs and Parameters
-filename = 'ndx_quotedata.csv'
+filename = 'spy_quotedata.csv'
 
 # Black-Scholes European-Options Gamma
 def calcGammaEx(S, K, vol, T, r, q, optType, OI):
