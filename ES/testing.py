@@ -85,7 +85,7 @@ strikes = dfAgg.index.values
 
 # Chart 1: Absolute Gamma Exposure
 plt.grid()
-plt.bar(strikes, dfAgg['TotalGamma'].to_numpy(), width=0.6, linewidth=0.1, edgecolor='k', label="Gamma Exposure")
+plt.bar(strikes, dfAgg['TotalGamma'].to_numpy(), width=6, linewidth=0.1, edgecolor='k', label="Gamma Exposure")
 plt.xlim([fromStrike, toStrike])
 chartTitle = "Total Gamma: $" + str("{:.2f}".format(df['TotalGamma'].sum())) + " Bn per 1% SPX Move"
 plt.title(chartTitle, fontweight="bold", fontsize=20)
@@ -97,8 +97,8 @@ plt.show()
 
 # Chart 2: Absolute Gamma Exposure by Calls and Puts
 plt.grid()
-plt.bar(strikes, dfAgg['CallGEX'].to_numpy() / 10**9, width=0.6, linewidth=0.1, edgecolor='k', label="Call Gamma")
-plt.bar(strikes, dfAgg['PutGEX'].to_numpy() / 10**9, width=0.6, linewidth=0.1, edgecolor='k', label="Put Gamma")
+plt.bar(strikes, dfAgg['CallGEX'].to_numpy() / 10**9, width=6, linewidth=0.1, edgecolor='k', label="Call Gamma")
+plt.bar(strikes, dfAgg['PutGEX'].to_numpy() / 10**9, width=6, linewidth=0.1, edgecolor='k', label="Put Gamma")
 plt.xlim([fromStrike, toStrike])
 chartTitle = "Total Gamma: $" + str("{:.2f}".format(df['TotalGamma'].sum())) + " Bn per 1% SPX Move"
 plt.title(chartTitle, fontweight="bold", fontsize=20)
