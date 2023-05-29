@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, date
 pd.options.display.float_format = "{:,.4f}".format
 
 # Inputs and Parameters
-filename = "ndx_quotedata.csv"
+filename = "qqq_quotedata.csv"
 
 
 # Black-Scholes European-Options Gamma
@@ -115,7 +115,7 @@ plt.grid()
 plt.bar(
     strikes,
     dfAgg["TotalGamma"].to_numpy(),
-    width=6,
+    width=0.6,
     linewidth=0.1,
     edgecolor="k",
     label="Gamma Exposure",
@@ -140,7 +140,7 @@ plt.grid()
 plt.bar(
     strikes,
     dfAgg["CallGEX"].to_numpy() / 10**9,
-    width=6,
+    width=0.6,
     linewidth=0.1,
     edgecolor="k",
     label="Call Gamma",
@@ -148,7 +148,7 @@ plt.bar(
 plt.bar(
     strikes,
     dfAgg["PutGEX"].to_numpy() / 10**9,
-    width=6,
+    width=0.6,
     linewidth=0.1,
     edgecolor="k",
     label="Put Gamma",
