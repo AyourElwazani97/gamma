@@ -109,7 +109,6 @@ df["PutGEX"] = (
 df["TotalGamma"] = (df.CallGEX + df.PutGEX) / 10**9
 dfAgg = df.groupby(["StrikePrice"]).sum()
 strikes = dfAgg.index.values
-
 # Chart 1: Absolute Gamma Exposure
 plt.grid()
 plt.bar(
