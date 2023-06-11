@@ -115,7 +115,7 @@ plt.grid()
 plt.bar(
     strikes,
     dfAgg["TotalGamma"].to_numpy(),
-    width=0.6,
+    width=3,
     linewidth=0.1,
     edgecolor="k",
     label="Gamma Exposure",
@@ -140,7 +140,7 @@ plt.grid()
 plt.bar(
     strikes,
     dfAgg["CallGEX"].to_numpy() / 10**9,
-    width=0.6,
+    width=3,
     linewidth=0.1,
     edgecolor="k",
     label="Call Gamma",
@@ -148,7 +148,7 @@ plt.bar(
 plt.bar(
     strikes,
     dfAgg["PutGEX"].to_numpy() / 10**9,
-    width=0.6,
+    width=3,
     linewidth=0.1,
     edgecolor="k",
     label="Put Gamma",
