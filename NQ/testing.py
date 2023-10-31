@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, date
 pd.options.display.float_format = "{:,.4f}".format
 
 # Inputs and Parameters
-filename = "qqq_quotedata.csv"
+filename = "Vqqq_quotedata.csv"
 
 
 # Black-Scholes European-Options Gamma
