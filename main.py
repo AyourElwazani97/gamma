@@ -6,9 +6,9 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import requests
 from matplotlib import dates
-
+print(pd.__version__)
 # Set plot style
-plt.style.use("seaborn-dark")
+plt.style.use("ggplot")
 for param in ["figure.facecolor", "axes.facecolor", "savefig.facecolor"]:
     plt.rcParams[param] = "#212946"
 for param in ["text.color", "axes.labelcolor", "xtick.color", "ytick.color"]:
