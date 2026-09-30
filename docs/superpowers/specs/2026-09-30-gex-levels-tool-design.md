@@ -42,9 +42,12 @@ strike × λ, contract multiplier 100 / λ. This keeps each option's dollar gamm
 |---|---|
 | Total GEX | Net dollar gamma at spot, $bn per 1% |
 | Gamma flip | Zero crossing of the net GEX profile (±10% of spot, 201 steps) closest to spot; `None` if no crossing |
-| Regime | Positive if spot > flip (or total GEX > 0 when no flip), else negative |
-| Call wall | Strike bin with largest call GEX (±15% of spot) |
-| Put wall | Strike bin with largest put GEX magnitude (±15% of spot) |
+| Regime | Positive if total GEX at spot > 0, else negative |
+| Call wall | Strike bin with most positive net GEX (±15% of spot) |
+| Put wall | Strike bin with most negative net GEX (±15% of spot) |
+
+Walls use net GEX because round strikes (e.g. SPX 8000) carry huge offsetting call and put OI;
+counting calls and puts separately made one strike both walls on live data.
 | Next-expiry call/put wall | Same, using only the nearest live expiry (0DTE on trading days) |
 | Magnets | Top 3 strike bins by abs(net GEX) within ±5% of spot, excluding the two walls |
 | Expected move | Spot ± ATM straddle mid of nearest index expiry; fallback spot × iv30 / √252 |
