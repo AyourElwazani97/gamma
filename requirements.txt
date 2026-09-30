@@ -1,3 +1,7 @@
-matplotlib==3.5.1
-pandas==1.4.1
-requests==2.27.1
+numpy>=2.0
+pandas>=2.2
+matplotlib>=3.8
+requests>=2.31
+yfinance>=0.2.40
+tzdata
+pytest>=8.0
