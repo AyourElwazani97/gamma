@@ -10,7 +10,7 @@ from gex.greeks import bs_gamma, dollar_gamma
 PROFILE_RANGE = 0.10  # gamma profile / flip search: spot +- 10%
 PROFILE_STEPS = 201
 WALL_RANGE = 0.15  # walls searched within spot +- 15%
-MAGNET_RANGE = 0.05  # magnets searched within spot +- 5%
+MAGNET_RANGE = 0.02  # magnets searched within spot +- 2% (intraday reach)
 N_MAGNETS = 3
 MIN_HOURS = 1.0  # floor on time to expiry so 0DTE gamma doesn't blow up
 HOURS_PER_YEAR = 365 * 24

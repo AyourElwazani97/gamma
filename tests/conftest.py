@@ -42,5 +42,5 @@ def make_opts(rows, source="index"):
 def ndx_raw():
     import json
 
-    with open(FIXTURES / "NDX.json") as f:
+    with open(FIXTURES / "_NDX.json") as f:
         return json.load(f)

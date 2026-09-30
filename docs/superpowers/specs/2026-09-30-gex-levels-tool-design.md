@@ -49,7 +49,7 @@ strike × λ, contract multiplier 100 / λ. This keeps each option's dollar gamm
 Walls use net GEX because round strikes (e.g. SPX 8000) carry huge offsetting call and put OI;
 counting calls and puts separately made one strike both walls on live data.
 | Next-expiry call/put wall | Same, using only the nearest live expiry (0DTE on trading days) |
-| Magnets | Top 3 strike bins by abs(net GEX) within ±5% of spot, excluding the two walls |
+| Magnets | Top 3 strike bins by abs(net GEX) within ±2% of spot, excluding the two walls |
 | Expected move | Spot ± ATM straddle mid of nearest index expiry; fallback spot × iv30 / √252 |
 
 ## Basis (index → futures)

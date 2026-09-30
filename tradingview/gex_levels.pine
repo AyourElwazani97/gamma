@@ -1,0 +1,45 @@
+//@version=6
+// GEX Levels - draws the levels printed by `python gex.py`.
+// Install once: Pine Editor -> paste this file -> Save -> Add to chart.
+// Every day: indicator Settings -> paste the "TradingView" line from gex.py (ES line on ES chart, NQ line on NQ chart).
+indicator("GEX Levels", overlay = true, max_lines_count = 100, max_labels_count = 100)
+
+levelsText = input.text_area("", "Levels (paste the TradingView line from gex.py)")
+showLabels = input.bool(true, "Show labels")
+
+colorFor(string name) =>
+    str.contains(name, "Call") ? color.new(#26a69a, 0) :
+     str.contains(name, "Put") ? color.new(#ef5350, 0) :
+     str.contains(name, "Flip") ? color.new(#f5c542, 0) :
+     str.contains(name, "Expected") ? color.new(#b388ff, 0) :
+     color.new(#9e9e9e, 0)
+
+styleFor(string name) =>
+    str.contains(name, "Expected") ? line.style_dashed :
+     str.contains(name, "Magnet") and not str.contains(name, "Wall") ? line.style_dotted :
+     line.style_solid
+
+widthFor(string name) =>
+    str.contains(name, "0DTE") or str.contains(name, "Magnet") or str.contains(name, "Expected") ? 1 : 2
+
+var array<line> drawnLines = array.new<line>()
+var array<label> drawnLabels = array.new<label>()
+
+if barstate.islast
+    for l in drawnLines
+        line.delete(l)
+    for lb in drawnLabels
+        label.delete(lb)
+    array.clear(drawnLines)
+    array.clear(drawnLabels)
+
+    for item in str.split(str.replace_all(levelsText, "\n", ""), ";")
+        parts = str.split(item, "=")
+        if array.size(parts) == 2
+            price = str.tonumber(str.replace_all(array.get(parts, 0), " ", ""))
+            name = array.get(parts, 1)
+            if not na(price)
+                c = colorFor(name)
+                array.push(drawnLines, line.new(bar_index - 1, price, bar_index, price, extend = extend.both, color = c, style = styleFor(name), width = widthFor(name)))
+                if showLabels
+                    array.push(drawnLabels, label.new(bar_index + 3, price, name + "  " + str.tostring(price), style = label.style_label_left, color = color.new(c, 85), textcolor = c, size = size.small))
