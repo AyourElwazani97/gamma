@@ -2,14 +2,18 @@
 import argparse
 import csv
 import sys
+from collections import Counter
 from datetime import date, time, timedelta
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from matplotlib.figure import Figure
 
 from gex.config import PRODUCTS
 from gex.data import NEW_YORK
+from gex.output import BG, GRAY, GREEN, GRID, RED, TEXT, YELLOW, _level_color, fmt
+from gex.reactions import THRESHOLD_PCT, TOLERANCE_PCT, WINDOW_BARS, level_reactions, levels_from_row
 
 OPEN, CLOSE = time(9, 30), time(16, 0)
 HOW_TO_READ = """
@@ -74,7 +78,23 @@ def grade(row, bars):
         "hit_put_wall": hit_put,
         "put_wall_held": c > put_wall if hit_put else None,  # touched but closed back above
         "closed_above_flip": None if flip is None else c > flip,
+        "em_width": em_high - em_low if has_em else None,
+        "reactions": level_reactions(
+            rth, levels_from_row(row), threshold=o * THRESHOLD_PCT, tolerance=o * TOLERANCE_PCT
+        ),
+        "bars": rth,
     }
+
+
+def scorecard(graded):
+    """{level name: Counter(outcome)} over all sessions; merged names count for each level."""
+    cards = {}
+    for g in graded:
+        for r in g.get("reactions", []):
+            for name in r.name.split(" + "):
+                base = name.rstrip(" 123") if name.startswith("Magnet") else name
+                cards.setdefault(base, Counter())[r.outcome] += 1
+    return cards
 
 
 def summarize(graded):
@@ -151,8 +171,87 @@ def format_review(product, graded):
         f"  Day range vs expected move: {regimes or '-'}",
         f"  Call wall: touched {s['call_wall_touched']}, held (closed below) {s['call_wall_held']}",
         f"  Put wall:  touched {s['put_wall_touched']}, held (closed above) {s['put_wall_held']}",
+        "",
+        "Level scorecard (first touch, 60-min reaction):",
+        f"  {'Level':<20}  {'held':>4}  {'broke':>5}  {'stalled':>7}  {'not reached':>11}",
     ]
+    for level, counts in scorecard(graded).items():
+        lines.append(
+            f"  {level:<20}  {counts['held']:>4}  {counts['broke']:>5}  {counts['stalled']:>7}  "
+            f"{counts['not reached']:>11}"
+        )
     return "\n".join(lines)
+
+
+def format_reactions(g):
+    """Per-level reaction table for one graded session."""
+    threshold = g["open"] * THRESHOLD_PCT
+    rng = "-" if g["em_width"] is None else f"{g['high'] - g['low']:.2f} vs expected {g['em_width']:.2f}"
+    lines = [
+        "",
+        f"--- {g['product']} {g['date']:%a %Y-%m-%d} | {g['regime']} gamma | range {rng} ---",
+        f"  Open {fmt(g['open'])}  High {fmt(g['high'])}  Low {fmt(g['low'])}  Close {fmt(g['close'])}"
+        f"   (reaction = {threshold:.1f} pts within {WINDOW_BARS * 5} min)",
+        f"  {'Level':<26}  {'Price':>9}  {'Touch':>5}  {'Tested as':<10}  {'Result':<11}  "
+        f"{'Bounce':>6}  {'Through':>7}  {'Touches':>7}",
+    ]
+    for r in g["reactions"]:
+        touch = "-" if r.first_touch is None else f"{r.first_touch.tz_convert(NEW_YORK):%H:%M}"
+        lines.append(
+            f"  {r.name:<26}  {fmt(r.price):>9}  {touch:>5}  {r.side or '-':<10}  {r.outcome:<11}  "
+            f"{r.bounce:>6.2f}  {r.through:>7.2f}  {r.touches:>7}"
+        )
+    return "\n".join(lines)
+
+
+OUTCOME_COLOR = {"held": GREEN, "broke": RED, "stalled": YELLOW}
+
+
+def plot_session(g, path):
+    """5-minute candles for the session with the levels and where each was first touched."""
+    bars = g["bars"]
+    x = np.arange(len(bars))
+    o, h, l, c = (bars[col].to_numpy(dtype=float) for col in ("Open", "High", "Low", "Close"))
+
+    fig = Figure(figsize=(14, 7), facecolor=BG)
+    ax = fig.subplots()
+    ax.set_facecolor(BG)
+    up = c >= o
+    ax.vlines(x, l, h, color=np.where(up, GREEN, RED), lw=0.8)
+    ax.bar(x, np.maximum(np.abs(c - o), 0.01), bottom=np.minimum(o, c), width=0.7, color=np.where(up, GREEN, RED))
+
+    pad = g["open"] * 0.004
+    lo, hi = l.min() - pad, h.max() + pad
+    for r in g["reactions"]:
+        if not lo <= r.price <= hi:
+            continue
+        color = _level_color(r.name)
+        ax.axhline(r.price, color=color, lw=1, alpha=0.8)
+        ax.text(len(x) + 0.5, r.price, f"{r.name} {fmt(r.price)}", color=color, fontsize=8, va="center")
+        if r.first_touch is not None:
+            i = bars.index.get_loc(r.first_touch)
+            ax.plot(i, r.price, "o", ms=9, mfc="none", mew=2, color=OUTCOME_COLOR[r.outcome])
+            ax.text(i, r.price, f" {r.outcome}", color=OUTCOME_COLOR[r.outcome], fontsize=8, va="bottom")
+
+    ax.set_ylim(lo, hi)
+    ax.set_xlim(-1, len(x) + 14)
+    times = bars.index.tz_convert(NEW_YORK)
+    ticks = x[::6]
+    ax.set_xticks(ticks, [f"{t:%H:%M}" for t in times[::6]])
+    ax.grid(color=GRID, lw=0.6)
+    ax.tick_params(colors=TEXT)
+    for spine in ax.spines.values():
+        spine.set_color(GRID)
+    rng = "" if g["em_width"] is None else f"  |  range {g['high'] - g['low']:.1f} vs expected {g['em_width']:.1f}"
+    ax.set_title(
+        f"{g['product']} {g['date']:%a %Y-%m-%d}  |  {g['regime'].upper()} GAMMA{rng}",
+        color=TEXT,
+        fontweight="bold",
+    )
+    ax.text(0.01, 0.01, "circle = first touch: green held, red broke, yellow stalled", transform=ax.transAxes,
+            color=GRAY, fontsize=8)  # fmt: skip
+    fig.tight_layout()
+    fig.savefig(path, dpi=120, facecolor=BG)
 
 
 def main(argv=None, today=None):
@@ -161,6 +260,8 @@ def main(argv=None, today=None):
     )
     parser.add_argument("products", nargs="*", default=["ES", "NQ"], help="ES, NQ or both (default: both)")
     parser.add_argument("--history", default="history/levels_history.csv", help="CSV written by gex.py")
+    parser.add_argument("--detail", action="store_true", help="show how price reacted at every level")
+    parser.add_argument("--charts", metavar="DIR", help="save a 5-minute chart per session into DIR")
     args = parser.parse_args(argv)
 
     if not Path(args.history).exists():
@@ -197,7 +298,16 @@ def main(argv=None, today=None):
         if not graded:
             print(f"\n{name}: no price data yet for the saved sessions.")
             continue
-        print(format_review(name, sorted(graded, key=lambda g: g["date"])))
+        graded.sort(key=lambda g: g["date"])
+        print(format_review(name, graded))
+        for g in graded:
+            if args.detail:
+                print(format_reactions(g))
+            if args.charts:
+                Path(args.charts).mkdir(parents=True, exist_ok=True)
+                chart = Path(args.charts) / f"{name}_{g['date']}_review.png"
+                plot_session(g, chart)
+                print(f"  Chart: {chart}")
         reviewed = True
     if reviewed:
         print(HOW_TO_READ)

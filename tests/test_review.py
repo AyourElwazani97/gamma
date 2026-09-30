@@ -125,3 +125,50 @@ def test_review_without_history(tmp_path, capsys):
 
     assert review.main(["--history", str(tmp_path / "none.csv")]) == 1
     assert "No history" in capsys.readouterr().err
+
+
+def test_grade_includes_level_reactions():
+    day_bars = bars(
+        "2026-10-01",
+        [("09:30", 7700, 7720, 7690, 7700), ("09:35", 7700, 7702, 7649, 7660), ("09:40", 7660, 7690, 7655, 7688)],
+    )
+    g = grade(history_row(), day_bars)
+    by_name = {r.name: r for r in g["reactions"]}
+    assert by_name["Put Wall"].outcome == "held"
+    assert by_name["Call Wall"].outcome == "not reached"
+
+
+def test_scorecard_counts_merged_levels_and_groups_magnets():
+    from gex.reactions import Reaction
+    from gex.review import scorecard
+
+    def r(name, outcome):
+        return Reaction(name, 1.0, outcome != "not reached", None, None, outcome, 0.0, 0.0, 0)
+
+    graded = [
+        {"reactions": [r("Magnet 1", "held"), r("Magnet 2 + 0DTE Put Wall", "broke")]},
+        {"reactions": [r("Magnet 3", "held"), r("0DTE Put Wall", "held")]},
+    ]
+    cards = scorecard(graded)
+    assert cards["Magnet"] == {"held": 2, "broke": 1}
+    assert cards["0DTE Put Wall"] == {"broke": 1, "held": 1}
+
+
+def test_review_detail_and_charts(tmp_path, monkeypatch, capsys):
+    import gex.review as review
+
+    history = tmp_path / "levels.csv"
+    history.write_text(
+        "asof_ny,product,regime,flip,call_wall,put_wall,em_low,em_high\n"
+        "2026-09-30 08:00,ES,negative,7740,7800,7650,7660,7760\n"
+    )
+    day_bars = bars("2026-09-30", [("09:30", 7700, 7720, 7645, 7690), ("09:35", 7690, 7755, 7680, 7710)])
+    monkeypatch.setattr(review, "fetch_bars", lambda product, start, end: day_bars)
+
+    charts = tmp_path / "charts"
+    args = ["ES", "--history", str(history), "--detail", "--charts", str(charts)]
+    assert review.main(args, today=date(2026, 9, 30)) == 0
+    out = capsys.readouterr().out
+    assert "Level scorecard" in out
+    assert "Tested as" in out and "Put Wall" in out
+    assert (charts / "ES_2026-09-30_review.png").stat().st_size > 10_000
