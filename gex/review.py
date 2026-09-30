@@ -12,6 +12,11 @@ from gex.config import PRODUCTS
 from gex.data import NEW_YORK
 
 OPEN, CLOSE = time(9, 30), time(16, 0)
+HOW_TO_READ = """
+How to read it:
+  Rng/EM < 1 = quieter day than options priced, > 1 = wilder.
+  If negative gamma days keep coming in wilder, respect the regime: smaller size, don't fade.
+  Walls that 'held' were good fade spots; 'BROKE' walls were breakout days."""
 MAX_BAR_DAYS = 59  # yfinance keeps 5-minute bars for about 60 days
 
 
@@ -146,11 +151,6 @@ def format_review(product, graded):
         f"  Day range vs expected move: {regimes or '-'}",
         f"  Call wall: touched {s['call_wall_touched']}, held (closed below) {s['call_wall_held']}",
         f"  Put wall:  touched {s['put_wall_touched']}, held (closed above) {s['put_wall_held']}",
-        "",
-        "How to read it:",
-        "  Rng/EM < 1 = quieter day than options priced, > 1 = wilder.",
-        "  If negative gamma days keep coming in wilder, respect the regime: smaller size, don't fade.",
-        "  Walls that 'held' were good fade spots; 'BROKE' walls were breakout days.",
     ]
     return "\n".join(lines)
 
@@ -171,6 +171,7 @@ def main(argv=None, today=None):
     oldest = today - timedelta(days=MAX_BAR_DAYS)
     rows = load_history(args.history)
     code = 0
+    reviewed = False
     for name in (p.upper() for p in args.products):
         if name not in PRODUCTS:
             print(f"Unknown product: {name}. Use ES or NQ.", file=sys.stderr)
@@ -197,4 +198,7 @@ def main(argv=None, today=None):
             print(f"\n{name}: no price data yet for the saved sessions.")
             continue
         print(format_review(name, sorted(graded, key=lambda g: g["date"])))
+        reviewed = True
+    if reviewed:
+        print(HOW_TO_READ)
     return code
