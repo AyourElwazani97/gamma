@@ -227,7 +227,8 @@ def plot_session(g, path):
             continue
         color = _level_color(r.name)
         ax.axhline(r.price, color=color, lw=1, alpha=0.8)
-        ax.text(len(x) + 0.5, r.price, f"{r.name} {fmt(r.price)}", color=color, fontsize=8, va="center")
+        ax.text(len(x) + 0.5, r.price, f"{r.name} {fmt(r.price)}", color=color, fontsize=8, va="center",
+                bbox={"facecolor": BG, "edgecolor": "none", "pad": 1.5})  # fmt: skip
         if r.first_touch is not None:
             i = bars.index.get_loc(r.first_touch)
             ax.plot(i, r.price, "o", ms=9, mfc="none", mew=2, color=OUTCOME_COLOR[r.outcome])
