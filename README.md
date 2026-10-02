@@ -102,6 +102,17 @@ Market makers (dealers) sell options to everyone else and hedge by trading the f
 Rules that keep you alive: trade the **reaction** at a level, never the level blindly; always use a stop
 beyond the level; risk a small fixed amount per trade (e.g. 1% of the account).
 
+## Live alerts during the session
+
+```bash
+python track.py                 # ES and NQ from the 09:30 open
+python track.py --start 08:25   # also the pre-market, e.g. on jobs-report days
+```
+
+After `gex.py` has run for the day, this checks ES/NQ every 2 minutes and prints a line when price
+touches a level, when that level holds or breaks, and when price crosses the Gamma Flip (regime change).
+A status line every 30 minutes shows where price is versus the flip. It stops at 16:00 ET.
+
 ## Review your levels
 
 ```bash
