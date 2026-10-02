@@ -50,3 +50,9 @@ def test_state_round_trip(tmp_path):
     save_state(path, {"ES": {"levels": {"Put Wall": "held"}, "flip": "below"}})
     assert load_state(path) == {"ES": {"levels": {"Put Wall": "held"}, "flip": "below"}}
     assert json.loads(path.read_text())["ES"]["flip"] == "below"
+
+
+def test_nq_prices_keep_their_decimals():
+    events, _ = level_events("NQ", {}, [r("Magnet", "stalled", price=30846.5)], last=30809.75)
+    assert "Magnet 30846.5" in events[0]
+    assert "last 30809.75" in events[0]

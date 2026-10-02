@@ -10,6 +10,7 @@ import pandas as pd
 
 from gex.config import PRODUCTS
 from gex.data import NEW_YORK
+from gex.output import fmt
 from gex.reactions import THRESHOLD_PCT, TOLERANCE_PCT, level_reactions, levels_from_row
 from gex.review import load_history, session_date
 
@@ -33,13 +34,13 @@ def level_events(product, prev, reactions, last):
             continue
         if before == "not reached" and r.touched:
             lines.append(
-                f"{r.first_touch.tz_convert(NEW_YORK):%H:%M} {product} touched {r.name} {r.price:g} "
-                f"as {r.side} (last {last:g})"
+                f"{r.first_touch.tz_convert(NEW_YORK):%H:%M} {product} touched {r.name} {fmt(r.price)} "
+                f"as {r.side} (last {fmt(last)})"
             )
         if r.outcome == "held":
-            lines.append(f"{product} {r.name} {r.price:g} HELD: bounced {r.bounce:g} pts (last {last:g})")
+            lines.append(f"{product} {r.name} {fmt(r.price)} HELD: bounced {fmt(r.bounce)} pts (last {fmt(last)})")
         elif r.outcome == "broke":
-            lines.append(f"{product} {r.name} {r.price:g} BROKE: went {r.through:g} pts through (last {last:g})")
+            lines.append(f"{product} {r.name} {fmt(r.price)} BROKE: went {fmt(r.through)} pts through (last {fmt(last)})")
     return lines, state
 
 
@@ -116,7 +117,7 @@ def main(argv=None):
             side = flip_side(last, flips[n])
             if side and st["flip"] and side != st["flip"]:
                 regime = "POSITIVE gamma (calmer, fade edges)" if side == "above" else "NEGATIVE gamma (faster, don't fade)"
-                lines.append(f"{now:%H:%M} {n} crossed {side} Gamma Flip {flips[n]:g} (last {last:g}) -> {regime}")
+                lines.append(f"{now:%H:%M} {n} crossed {side} Gamma Flip {fmt(flips[n])} (last {fmt(last)}) -> {regime}")
             st["flip"] = side or st["flip"]
             for line in lines:
                 print(line, flush=True)
@@ -124,7 +125,7 @@ def main(argv=None):
 
         if lasts and (last_beat is None or (now - last_beat).total_seconds() >= HEARTBEAT_MIN * 60):
             parts = [
-                f"{n} {v:g} ({v - flips[n]:+g} vs flip)" if flips[n] else f"{n} {v:g}" for n, v in lasts.items()
+                f"{n} {fmt(v)} ({'+' if v >= flips[n] else '-'}{fmt(abs(v - flips[n]))} vs flip)" if flips[n] else f"{n} {fmt(v)}" for n, v in lasts.items()
             ]
             print(f"{now:%H:%M} STATUS " + " | ".join(parts), flush=True)
             last_beat = now
