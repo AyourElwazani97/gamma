@@ -7,6 +7,7 @@
   <img src="https://img.shields.io/badge/tests-66%20passing-0ca30c" alt="66 tests passing">
   <img src="https://img.shields.io/badge/data-free%20CBOE%20options-6e7887" alt="Free CBOE options data">
   <img src="https://img.shields.io/badge/TradingView-indicator%20included-131722?logo=tradingview&logoColor=white" alt="TradingView indicator included">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-a9b2bf" alt="MIT license"></a>
 </p>
 
 <p align="center">
@@ -372,3 +373,9 @@ python -m pytest
 ```
 
 Contributions are welcome. Open an issue first for bigger changes, and keep tests passing.
+
+---
+
+## License
+
+[MIT](LICENSE): free to use, change and share. The software comes with no warranty, and nothing in it is financial advice.
