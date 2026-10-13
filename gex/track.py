@@ -90,7 +90,7 @@ def setup_events(product, seen, setups):
             head, order, stop = f"FAILED BREAKDOWN below {s.name}", "LONG above", "stop below"
         risk = abs(s.stop - s.entry)
         reward = None if s.target is None else abs(s.entry - s.target)
-        breakeven = s.entry - risk if s.direction == "short" else s.entry + risk
+        be_at = s.entry - risk if s.direction == "short" else s.entry + risk  # one risk in our favour
         if s.target is None:
             plan = f"no level beyond, trail the stop (risk {fmt(risk)})"
         else:
@@ -105,7 +105,7 @@ def setup_events(product, seen, setups):
             verdict = "OK: positive gamma, walls tend to hold"
         lines.append(
             f"{s.time.tz_convert(NEW_YORK):%H:%M} {product} {head} {fmt(s.price)}: "
-            f"{order} {fmt(s.entry)}, {stop} {fmt(s.stop)}, {plan}, breakeven at {fmt(breakeven)} -> {verdict}"
+            f"{order} {fmt(s.entry)}, {stop} {fmt(s.stop)}, {plan}, at {fmt(be_at)} move stop to {fmt(s.entry)} -> {verdict}"
         )
     return lines, seen
 

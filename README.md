@@ -267,15 +267,15 @@ A high cross count at a magnet means price is pinned there: chop, not a trend.
 
 - only tops of the range give shorts (Call Walls, Expected Move High) and only bottoms give longs (Put Walls, Expected Move Low)
 - entry = break of the signal bar's low (short) or high (long), stop = beyond the furthest point of the push, target = the next level
-- once price moves one risk in your favour, move the stop to the breakeven price shown
+- once price reaches the `at` price (one risk in your favour), move the stop to your entry: the trade can no longer lose
 - `OK` only in positive gamma with a reward at least as big as the risk; otherwise the line says `SKIP` and why
 
 Alerts from a replay of October 8, 2026:
 
 ```text
-10:30 NQ FAILED BREAKOUT above Expected Move High 31355.75: SHORT below 31331.75, stop above 31369.75, target 0DTE Put Wall 31269.75 (risk 38, reward 62), breakeven at 31293.75 -> OK: positive gamma, walls tend to hold
-12:05 ES FAILED BREAKDOWN below 0DTE Put Wall 7822: LONG above 7825.25, stop below 7820, target Magnet 3 7852 (risk 5.25, reward 26.75), breakeven at 7830.5 -> OK: positive gamma, walls tend to hold
-13:05 ES FAILED BREAKDOWN below Expected Move Low 7799: LONG above 7805.75, stop below 7796.75, target 0DTE Put Wall 7822 (risk 9, reward 16.25), breakeven at 7814.75 -> SKIP: below Gamma Flip, walls break more often
+10:30 NQ FAILED BREAKOUT above Expected Move High 31355.75: SHORT below 31331.75, stop above 31369.75, target 0DTE Put Wall 31269.75 (risk 38, reward 62), at 31293.75 move stop to 31331.75 -> OK: positive gamma, walls tend to hold
+12:05 ES FAILED BREAKDOWN below 0DTE Put Wall 7822: LONG above 7825.25, stop below 7820, target Magnet 3 7852 (risk 5.25, reward 26.75), at 7830.5 move stop to 7825.25 -> OK: positive gamma, walls tend to hold
+13:05 ES FAILED BREAKDOWN below Expected Move Low 7799: LONG above 7805.75, stop below 7796.75, target 0DTE Put Wall 7822 (risk 9, reward 16.25), at 7814.75 move stop to 7805.75 -> SKIP: below Gamma Flip, walls break more often
 ```
 
 The NQ short reached its target. The ES long came within 2 points of its target, then fell back, so the breakeven stop turned a loss into a scratch. This is a heads-up, not a proven system yet: only a handful of sessions are logged.

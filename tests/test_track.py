@@ -75,7 +75,7 @@ def test_failed_breakout_alert_gives_the_trade_plan_once():
     assert "SHORT below 7863.25" in line and "stop above 7876" in line
     assert "target Magnet 3 7849.5" in line
     assert "risk 12.75" in line and "reward 13.75" in line
-    assert "breakeven at 7850.5" in line  # once price moves one risk in our favour
+    assert "at 7850.5 move stop to 7863.25" in line  # one risk in our favour -> stop to entry
     assert "OK" in line
     again, _ = setup_events("ES", seen, [fb()])
     assert again == []
