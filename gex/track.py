@@ -46,6 +46,12 @@ def level_events(product, prev, reactions, last):
     return lines, state
 
 
+def closed_bars(bars):
+    """Bars that have finished. The feed's newest bar is still forming, and Yahoo futures run
+    ~10 minutes late, so the bar's timestamp alone can't tell."""
+    return bars.iloc[:-1]
+
+
 def cross_events(product, counts, crosses, reactions, last):
     """Lines for 5-minute closes through a level not alerted yet (`counts` = {name: crosses seen}).
 
@@ -174,7 +180,7 @@ def main(argv=None):
             reactions = level_reactions(bars, levels[n], threshold=ref * THRESHOLD_PCT, tolerance=ref * TOLERANCE_PCT)
             st = state.setdefault(n, {"levels": {}, "flip": None})
             lines, st["levels"] = level_events(n, st["levels"], reactions, last)
-            done = bars[bars.index <= now - pd.Timedelta(minutes=5)]  # only bars that have closed
+            done = closed_bars(bars)
             crosses = level_crosses(done, levels[n], tolerance=ref * TOLERANCE_PCT)
             cross_lines, st["crosses"] = cross_events(n, st.get("crosses", {}), crosses, reactions, last)
             lines += cross_lines

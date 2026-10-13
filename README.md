@@ -4,7 +4,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white" alt="Python 3.10+">
-  <img src="https://img.shields.io/badge/tests-87%20passing-0ca30c" alt="87 tests passing">
+  <img src="https://img.shields.io/badge/tests-88%20passing-0ca30c" alt="88 tests passing">
   <img src="https://img.shields.io/badge/data-free%20CBOE%20options-6e7887" alt="Free CBOE options data">
   <img src="https://img.shields.io/badge/TradingView-indicator%20included-131722?logo=tradingview&logoColor=white" alt="TradingView indicator included">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-a9b2bf" alt="MIT license"></a>
@@ -390,7 +390,7 @@ gex/
   output.py         report, chart, TradingView line, history CSV
 tradingview/        GEX Levels indicator (Pine Script v6)
 history/            your daily levels log
-tests/              87 tests (python -m pytest)
+tests/              88 tests (python -m pytest)
 legacy/             the original 2022-2024 scripts
 ```
 

@@ -4,7 +4,7 @@ import pandas as pd
 
 from gex.fakeouts import FailedBreakout
 from gex.reactions import Cross, Reaction
-from gex.track import cross_events, flip_side, level_events, load_state, save_state, setup_events
+from gex.track import closed_bars, cross_events, flip_side, level_events, load_state, save_state, setup_events
 
 
 def r(name, outcome, side="support", touch="09:35", bounce=0.0, through=0.0, price=100.0):
@@ -119,3 +119,10 @@ def test_gamma_flip_crosses_are_left_to_the_flip_alert():
     crosses = [cx("Gamma Flip", "above", "11:00", 7830, 1, price=7819.25), cx("Gamma Flip + Magnet 1", "below", "11:05", 7810, 1)]
     events, _ = cross_events("ES", {}, crosses, [], last=7810)
     assert events == []
+
+
+def test_closed_bars_drop_the_forming_bar_even_with_a_delayed_feed():
+    # at 11:37 Yahoo's newest ES bar was 11:25 and its close was still changing
+    index = pd.date_range("2026-10-13 11:15", periods=3, freq="5min", tz="America/New_York")
+    bars = pd.DataFrame({"Close": [7845.5, 7842.5, 7841.25]}, index=index)
+    assert list(closed_bars(bars)["Close"]) == [7845.5, 7842.5]
