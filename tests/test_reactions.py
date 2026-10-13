@@ -1,6 +1,6 @@
 import pandas as pd
 
-from gex.reactions import level_reactions, levels_from_row
+from gex.reactions import level_crosses, level_reactions, levels_from_row
 
 NY = "America/New_York"
 
@@ -72,3 +72,31 @@ def test_levels_from_row_sorted_merged_and_skips_blanks():
         ("Magnet 1", 7659.75),
         ("Put Wall", 7559.75),
     ]
+
+
+def crosses(rows, level=100.0):
+    return level_crosses(make_bars(rows), [("Level", level)], tolerance=1)
+
+
+def test_every_close_through_the_level_is_a_cross():
+    rows = [(95, 97, 94, 96), (96, 104, 95, 103), (103, 104, 101, 102), (102, 103, 96, 97)]
+    up, down = crosses(rows)
+    assert (up.direction, up.close, up.count) == ("above", 103, 1)
+    assert up.time == pd.Timestamp("2026-09-30 09:35", tz=NY)
+    assert (down.direction, down.close, down.count) == ("below", 97, 2)
+    assert down.time == pd.Timestamp("2026-09-30 09:45", tz=NY)
+
+
+def test_close_within_tolerance_or_wick_through_is_not_a_cross():
+    assert crosses([(95, 97, 94, 96), (96, 100.8, 95, 100.5)]) == []  # close only 0.5 above
+    assert crosses([(95, 97, 94, 96), (96, 106, 95, 98)]) == []  # wick through, close back below
+
+
+def test_chop_inside_tolerance_keeps_the_last_side():
+    # 103 above, then 99.5 / 100.5 hover inside +-1, then 98.5 below: two crosses, not four
+    rows = [(95, 97, 94, 96), (96, 104, 95, 103), (103, 103, 99, 99.5), (99.5, 101, 99, 100.5), (100.5, 101, 98, 98.5)]
+    assert [c.direction for c in crosses(rows)] == ["above", "below"]
+
+
+def test_starting_side_comes_from_the_first_open():
+    assert crosses([(105, 106, 103, 104), (104, 106, 103, 105)]) == []

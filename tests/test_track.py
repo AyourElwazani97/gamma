@@ -3,8 +3,8 @@ import json
 import pandas as pd
 
 from gex.fakeouts import FailedBreakout
-from gex.reactions import Reaction
-from gex.track import flip_side, level_events, load_state, save_state, setup_events
+from gex.reactions import Cross, Reaction
+from gex.track import cross_events, flip_side, level_events, load_state, save_state, setup_events
 
 
 def r(name, outcome, side="support", touch="09:35", bounce=0.0, through=0.0, price=100.0):
@@ -92,3 +92,30 @@ def test_failed_breakdown_below_flip_says_skip():
 def test_reward_smaller_than_risk_says_skip():
     [line], _ = setup_events("ES", [], [fb(target=("Magnet 3", 7858.25))])  # reward 5 vs risk 12.75
     assert "SKIP" in line and "reward smaller than risk" in line
+
+
+def cx(name, direction, at, close, count, price=30719.25):
+    return Cross(name, price, direction, pd.Timestamp(f"2026-10-13 {at}", tz="America/New_York"), close, count)
+
+
+def test_crossing_back_through_a_level_is_alerted_once():
+    first = r("Expected Move Low", "broke", side="resistance", price=30719.25)  # the BROKE line covers cross #1
+    crosses = [cx("Expected Move Low", "above", "09:35", 30758, 1), cx("Expected Move Low", "below", "10:50", 30696.5, 2)]
+    [line], counts = cross_events("NQ", {}, crosses, [first], last=30717)
+    assert "10:50 NQ closed back BELOW Expected Move Low 30719.25 at 30696.5" in line
+    assert "cross #2 today" in line and "last 30717" in line
+    assert counts == {"Expected Move Low": 2}
+    again, _ = cross_events("NQ", counts, crosses, [first], last=30717)
+    assert again == []
+
+
+def test_first_cross_is_alerted_when_the_first_touch_held():
+    held = r("Put Wall", "held", side="support", price=30858.75)
+    [line], _ = cross_events("NQ", {}, [cx("Put Wall", "below", "13:05", 30840, 1, price=30858.75)], [held], last=30835)
+    assert "13:05 NQ closed BELOW Put Wall 30858.75 at 30840 (cross #1 today" in line
+
+
+def test_gamma_flip_crosses_are_left_to_the_flip_alert():
+    crosses = [cx("Gamma Flip", "above", "11:00", 7830, 1, price=7819.25), cx("Gamma Flip + Magnet 1", "below", "11:05", 7810, 1)]
+    events, _ = cross_events("ES", {}, crosses, [], last=7810)
+    assert events == []

@@ -4,7 +4,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white" alt="Python 3.10+">
-  <img src="https://img.shields.io/badge/tests-80%20passing-0ca30c" alt="80 tests passing">
+  <img src="https://img.shields.io/badge/tests-87%20passing-0ca30c" alt="87 tests passing">
   <img src="https://img.shields.io/badge/data-free%20CBOE%20options-6e7887" alt="Free CBOE options data">
   <img src="https://img.shields.io/badge/TradingView-indicator%20included-131722?logo=tradingview&logoColor=white" alt="TradingView indicator included">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-a9b2bf" alt="MIT license"></a>
@@ -34,7 +34,7 @@
 | **Levels in futures prices** | Call Wall, Put Wall, Gamma Flip, Magnets, 0DTE walls and the expected move. They are computed from SPX + SPY (for ES) and NDX + QQQ (for NQ) options and converted to the futures price you actually trade. |
 | **A plan, not just numbers** | Every report starts with the **regime**: is today likely calm or wild? Then it gives the rules that usually work in that regime. |
 | **TradingView in one paste** | Install the included indicator once. Every morning, paste one line and all levels draw themselves. |
-| **Live alerts** | `track.py` prints a line when price touches a level, when the level holds or breaks, when price crosses the Gamma Flip, and when a wall gives a failed-breakout trade (entry, stop, target). |
+| **Live alerts** | `track.py` prints a line when price touches a level, when the level holds or breaks, each time a 5-minute bar closes back through it, when price crosses the Gamma Flip, and when a wall gives a failed-breakout trade (entry, stop, target). |
 | **Proof, not hope** | `review.py` checks your saved levels against what really happened, so you learn which levels work for you. |
 
 <p align="center">
@@ -253,6 +253,16 @@ ES Magnet 3 7709.75 BROKE: went 26 pts through (last 7686)
 ES 0DTE Put Wall 7684.75 HELD: bounced 17.25 pts (last 7701.25)
 ```
 
+**Crossing alerts.** The touch line only covers the first time price reaches a level. After that, every 5-minute bar that closes on the other side of a level prints a line (closes within about 1.5 ES / 6 NQ points of the level don't count). From October 13, 2026:
+
+```text
+10:50 NQ closed back BELOW Expected Move Low 30719.25 at 30696.5 (cross #2 today, last 30683.25)
+10:30 ES closed back BELOW Magnet 3 7849.5 at 7846.5 (cross #2 today, last 7841.25)
+10:40 ES closed back ABOVE Magnet 3 7849.5 at 7852 (cross #3 today, last 7841.25)
+```
+
+A high cross count at a magnet means price is pinned there: chop, not a trend.
+
 **Failed-breakout alerts** (Tom Hougaard's "magnet" trade). Price pushes through a wall or an expected-move edge, can't follow through, and closes back inside within 15 minutes. That is the signal to trade back toward the next level:
 
 - only tops of the range give shorts (Call Walls, Expected Move High) and only bottoms give longs (Put Walls, Expected Move Low)
@@ -380,7 +390,7 @@ gex/
   output.py         report, chart, TradingView line, history CSV
 tradingview/        GEX Levels indicator (Pine Script v6)
 history/            your daily levels log
-tests/              80 tests (python -m pytest)
+tests/              87 tests (python -m pytest)
 legacy/             the original 2022-2024 scripts
 ```
 

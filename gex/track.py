@@ -1,5 +1,5 @@
 """Live session tracker: prints one line each time price touches, holds or breaks a level,
-and when a wall gives a failed-breakout trade."""
+each time a 5-minute bar closes back through one, and when a wall gives a failed-breakout trade."""
 import argparse
 import json
 import sys
@@ -13,7 +13,7 @@ from gex.config import PRODUCTS
 from gex.data import NEW_YORK
 from gex.fakeouts import failed_breakouts
 from gex.output import fmt
-from gex.reactions import THRESHOLD_PCT, TOLERANCE_PCT, level_reactions, levels_from_row
+from gex.reactions import THRESHOLD_PCT, TOLERANCE_PCT, level_crosses, level_reactions, levels_from_row
 from gex.review import load_history, session_date
 
 CLOSE = dtime(16, 0)
@@ -44,6 +44,30 @@ def level_events(product, prev, reactions, last):
         elif r.outcome == "broke":
             lines.append(f"{product} {r.name} {fmt(r.price)} BROKE: went {fmt(r.through)} pts through (last {fmt(last)})")
     return lines, state
+
+
+def cross_events(product, counts, crosses, reactions, last):
+    """Lines for 5-minute closes through a level not alerted yet (`counts` = {name: crosses seen}).
+
+    Skips the first cross when the first touch already printed BROKE that way, and the Gamma Flip
+    (it has its own regime alert). Returns (lines, new counts).
+    """
+    lines, counts = [], dict(counts)
+    broke_to = {
+        r.name: "above" if r.side == "resistance" else "below" for r in reactions if r.outcome == "broke"
+    }
+    for x in crosses:
+        if x.count <= counts.get(x.name, 0):
+            continue
+        counts[x.name] = x.count
+        if "Gamma Flip" in x.name or (x.count == 1 and broke_to.get(x.name) == x.direction):
+            continue
+        back = "back " if x.count > 1 else ""
+        lines.append(
+            f"{x.time.tz_convert(NEW_YORK):%H:%M} {product} closed {back}{x.direction.upper()} {x.name} "
+            f"{fmt(x.price)} at {fmt(x.close)} (cross #{x.count} today, last {fmt(last)})"
+        )
+    return lines, counts
 
 
 def setup_events(product, seen, setups):
@@ -151,6 +175,9 @@ def main(argv=None):
             st = state.setdefault(n, {"levels": {}, "flip": None})
             lines, st["levels"] = level_events(n, st["levels"], reactions, last)
             done = bars[bars.index <= now - pd.Timedelta(minutes=5)]  # only bars that have closed
+            crosses = level_crosses(done, levels[n], tolerance=ref * TOLERANCE_PCT)
+            cross_lines, st["crosses"] = cross_events(n, st.get("crosses", {}), crosses, reactions, last)
+            lines += cross_lines
             setups = failed_breakouts(done, levels[n], flips[n], tolerance=ref * TOLERANCE_PCT)
             setup_lines, st["setups"] = setup_events(n, st.get("setups", []), setups)
             lines += setup_lines

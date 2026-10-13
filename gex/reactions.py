@@ -103,3 +103,34 @@ def level_reactions(bars, levels, threshold, tolerance, window=WINDOW_BARS):
             )
         )
     return results
+
+
+@dataclass
+class Cross:
+    name: str
+    price: float
+    direction: str  # "above" / "below": the side the 5-minute bar closed on
+    time: pd.Timestamp
+    close: float
+    count: int  # crosses of this level so far in the session
+
+
+def level_crosses(bars, levels, tolerance):
+    """Every 5-minute close on the other side of a level, by more than `tolerance`.
+
+    Closes within `tolerance` keep the previous side, so chop right at a level is not a cross.
+    The starting side comes from the first bar's open.
+    """
+    o, c = (bars[col].to_numpy(dtype=float) for col in ("Open", "Close"))
+    results = []
+    for name, level in levels:
+        if not len(c):
+            continue
+        side, count = ("above" if o[0] > level else "below"), 0
+        for i, close in enumerate(c):
+            now = "above" if close > level + tolerance else "below" if close < level - tolerance else side
+            if now != side:
+                count += 1
+                results.append(Cross(name, level, now, bars.index[i], float(close), count))
+                side = now
+    return results
