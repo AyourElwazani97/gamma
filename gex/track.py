@@ -1,4 +1,5 @@
-"""Live session tracker: prints one line each time price touches, holds or breaks a level."""
+"""Live session tracker: prints one line each time price touches, holds or breaks a level,
+and when a wall gives a failed-breakout trade."""
 import argparse
 import json
 import sys
@@ -10,6 +11,7 @@ import pandas as pd
 
 from gex.config import PRODUCTS
 from gex.data import NEW_YORK
+from gex.fakeouts import failed_breakouts
 from gex.output import fmt
 from gex.reactions import THRESHOLD_PCT, TOLERANCE_PCT, level_reactions, levels_from_row
 from gex.review import load_history, session_date
@@ -42,6 +44,40 @@ def level_events(product, prev, reactions, last):
         elif r.outcome == "broke":
             lines.append(f"{product} {r.name} {fmt(r.price)} BROKE: went {fmt(r.through)} pts through (last {fmt(last)})")
     return lines, state
+
+
+def setup_events(product, seen, setups):
+    """Lines for failed breakouts not alerted yet (`seen` = keys already alerted). Returns (lines, new seen)."""
+    lines, seen = [], list(seen)
+    for s in setups:
+        key = f"{s.name}|{s.direction}"
+        if key in seen:
+            continue
+        seen.append(key)
+        if s.direction == "short":
+            head, order, stop = f"FAILED BREAKOUT above {s.name}", "SHORT below", "stop above"
+        else:
+            head, order, stop = f"FAILED BREAKDOWN below {s.name}", "LONG above", "stop below"
+        risk = abs(s.stop - s.entry)
+        reward = None if s.target is None else abs(s.entry - s.target)
+        breakeven = s.entry - risk if s.direction == "short" else s.entry + risk
+        if s.target is None:
+            plan = f"no level beyond, trail the stop (risk {fmt(risk)})"
+        else:
+            plan = f"target {s.target_name} {fmt(s.target)} (risk {fmt(risk)}, reward {fmt(reward)})"
+        if s.positive_gamma is False:
+            verdict = "SKIP: below Gamma Flip, walls break more often"
+        elif reward is not None and reward < risk:
+            verdict = "SKIP: reward smaller than risk"
+        elif s.positive_gamma is None:
+            verdict = "no Gamma Flip today, check the regime"
+        else:
+            verdict = "OK: positive gamma, walls tend to hold"
+        lines.append(
+            f"{s.time.tz_convert(NEW_YORK):%H:%M} {product} {head} {fmt(s.price)}: "
+            f"{order} {fmt(s.entry)}, {stop} {fmt(s.stop)}, {plan}, breakeven at {fmt(breakeven)} -> {verdict}"
+        )
+    return lines, seen
 
 
 def load_state(path):
@@ -114,6 +150,10 @@ def main(argv=None):
             reactions = level_reactions(bars, levels[n], threshold=ref * THRESHOLD_PCT, tolerance=ref * TOLERANCE_PCT)
             st = state.setdefault(n, {"levels": {}, "flip": None})
             lines, st["levels"] = level_events(n, st["levels"], reactions, last)
+            done = bars[bars.index <= now - pd.Timedelta(minutes=5)]  # only bars that have closed
+            setups = failed_breakouts(done, levels[n], flips[n], tolerance=ref * TOLERANCE_PCT)
+            setup_lines, st["setups"] = setup_events(n, st.get("setups", []), setups)
+            lines += setup_lines
             side = flip_side(last, flips[n])
             if side and st["flip"] and side != st["flip"]:
                 regime = "POSITIVE gamma (calmer, fade edges)" if side == "above" else "NEGATIVE gamma (faster, don't fade)"

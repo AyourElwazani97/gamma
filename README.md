@@ -4,7 +4,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white" alt="Python 3.10+">
-  <img src="https://img.shields.io/badge/tests-66%20passing-0ca30c" alt="66 tests passing">
+  <img src="https://img.shields.io/badge/tests-80%20passing-0ca30c" alt="80 tests passing">
   <img src="https://img.shields.io/badge/data-free%20CBOE%20options-6e7887" alt="Free CBOE options data">
   <img src="https://img.shields.io/badge/TradingView-indicator%20included-131722?logo=tradingview&logoColor=white" alt="TradingView indicator included">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-a9b2bf" alt="MIT license"></a>
@@ -34,7 +34,7 @@
 | **Levels in futures prices** | Call Wall, Put Wall, Gamma Flip, Magnets, 0DTE walls and the expected move. They are computed from SPX + SPY (for ES) and NDX + QQQ (for NQ) options and converted to the futures price you actually trade. |
 | **A plan, not just numbers** | Every report starts with the **regime**: is today likely calm or wild? Then it gives the rules that usually work in that regime. |
 | **TradingView in one paste** | Install the included indicator once. Every morning, paste one line and all levels draw themselves. |
-| **Live alerts** | `track.py` prints a line when price touches a level, when the level holds or breaks, and when price crosses the Gamma Flip. |
+| **Live alerts** | `track.py` prints a line when price touches a level, when the level holds or breaks, when price crosses the Gamma Flip, and when a wall gives a failed-breakout trade (entry, stop, target). |
 | **Proof, not hope** | `review.py` checks your saved levels against what really happened, so you learn which levels work for you. |
 
 <p align="center">
@@ -252,6 +252,23 @@ ES Magnet 3 7709.75 BROKE: went 26 pts through (last 7686)
 10:00 ES touched 0DTE Put Wall 7684.75 as support (last 7686)
 ES 0DTE Put Wall 7684.75 HELD: bounced 17.25 pts (last 7701.25)
 ```
+
+**Failed-breakout alerts** (Tom Hougaard's "magnet" trade). Price pushes through a wall or an expected-move edge, can't follow through, and closes back inside within 15 minutes. That is the signal to trade back toward the next level:
+
+- only tops of the range give shorts (Call Walls, Expected Move High) and only bottoms give longs (Put Walls, Expected Move Low)
+- entry = break of the signal bar's low (short) or high (long), stop = beyond the furthest point of the push, target = the next level
+- once price moves one risk in your favour, move the stop to the breakeven price shown
+- `OK` only in positive gamma with a reward at least as big as the risk; otherwise the line says `SKIP` and why
+
+Alerts from a replay of October 8, 2026:
+
+```text
+10:30 NQ FAILED BREAKOUT above Expected Move High 31355.75: SHORT below 31331.75, stop above 31369.75, target 0DTE Put Wall 31269.75 (risk 38, reward 62), breakeven at 31293.75 -> OK: positive gamma, walls tend to hold
+12:05 ES FAILED BREAKDOWN below 0DTE Put Wall 7822: LONG above 7825.25, stop below 7820, target Magnet 3 7852 (risk 5.25, reward 26.75), breakeven at 7830.5 -> OK: positive gamma, walls tend to hold
+13:05 ES FAILED BREAKDOWN below Expected Move Low 7799: LONG above 7805.75, stop below 7796.75, target 0DTE Put Wall 7822 (risk 9, reward 16.25), breakeven at 7814.75 -> SKIP: below Gamma Flip, walls break more often
+```
+
+The NQ short reached its target. The ES long came within 2 points of its target, then fell back, so the breakeven stop turned a loss into a scratch. This is a heads-up, not a proven system yet: only a handful of sessions are logged.
 </details>
 
 <details>
@@ -359,10 +376,11 @@ gex/
   levels.py         walls, flip, magnets, expected move
   futures.py        index -> futures basis
   reactions.py      held / broke / stalled at each level
+  fakeouts.py       failed breakouts at walls (Tom Hougaard's setup)
   output.py         report, chart, TradingView line, history CSV
 tradingview/        GEX Levels indicator (Pine Script v6)
 history/            your daily levels log
-tests/              66 tests (python -m pytest)
+tests/              80 tests (python -m pytest)
 legacy/             the original 2022-2024 scripts
 ```
 
