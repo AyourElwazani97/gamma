@@ -172,3 +172,25 @@ def test_review_detail_and_charts(tmp_path, monkeypatch, capsys):
     assert "Level scorecard" in out
     assert "Tested as" in out and "Put Wall" in out
     assert (charts / "ES_2026-09-30_review.png").stat().st_size > 10_000
+
+
+def test_review_keeps_working_from_saved_bars_after_yahoo_drops_them(tmp_path, monkeypatch, capsys):
+    import gex.review as review
+
+    history = tmp_path / "levels.csv"
+    history.write_text(
+        "asof_ny,product,regime,flip,call_wall,put_wall,em_low,em_high\n"
+        "2026-09-30 08:00,ES,negative,7740,7800,7650,7660,7760\n"
+    )
+    day_bars = bars("2026-09-30", [("09:30", 7700, 7720, 7645, 7690), ("15:55", 7690, 7755, 7680, 7710)])
+    monkeypatch.setattr(review, "fetch_bars", lambda product, start, end: day_bars)
+    assert review.main(["ES", "--history", str(history)], today=date(2026, 9, 30)) == 0
+    assert (tmp_path / "bars" / "ES_2026-09-30.csv").exists()  # saved next to the history
+    capsys.readouterr()
+
+    def gone(product, start, end):
+        raise AssertionError("should not download a saved session")
+
+    monkeypatch.setattr(review, "fetch_bars", gone)
+    assert review.main(["ES", "--history", str(history)], today=date(2026, 12, 31)) == 0  # > 60 days later
+    assert "ES review: 1 session(s)" in capsys.readouterr().out

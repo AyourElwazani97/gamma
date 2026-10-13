@@ -3,13 +3,14 @@ import argparse
 import csv
 import sys
 from collections import Counter
-from datetime import date, time, timedelta
+from datetime import time, timedelta
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 from matplotlib.figure import Figure
 
+from gex.bars import archived_bars
 from gex.config import PRODUCTS
 from gex.data import NEW_YORK
 from gex.output import BG, GRAY, GREEN, GRID, RED, TEXT, YELLOW, _level_color, fmt
@@ -21,7 +22,6 @@ How to read it:
   Rng/EM < 1 = quieter day than options priced, > 1 = wilder.
   If negative gamma days keep coming in wilder, respect the regime: smaller size, don't fade.
   Walls that 'held' were good fade spots; 'BROKE' walls were breakout days."""
-MAX_BAR_DAYS = 59  # yfinance keeps 5-minute bars for about 60 days
 
 
 def session_date(asof):
@@ -269,8 +269,12 @@ def main(argv=None, today=None):
         print(f"No history at {args.history} yet. Run `python gex.py` before each session first.", file=sys.stderr)
         return 1
 
-    today = today or date.today()
-    oldest = today - timedelta(days=MAX_BAR_DAYS)
+    if today is None:
+        now = pd.Timestamp.now(tz=NEW_YORK)
+    else:
+        now = pd.Timestamp.combine(today, time(23, 59)).tz_localize(NEW_YORK)
+    today = now.date()
+    saved = Path(args.history).parent / "bars"  # finished sessions' bars, kept after Yahoo drops them
     rows = load_history(args.history)
     code = 0
     reviewed = False
@@ -282,15 +286,15 @@ def main(argv=None, today=None):
         product_rows = [
             r for r in rows
             if r["product"] == name
-            and oldest <= session_date(pd.Timestamp(r["asof_ny"], tz=NEW_YORK)) <= today
+            and session_date(pd.Timestamp(r["asof_ny"], tz=NEW_YORK)) <= today
         ]  # fmt: skip
         if not product_rows:
-            print(f"\n{name}: no finished sessions in the last {MAX_BAR_DAYS} days to review yet.")
+            print(f"\n{name}: no finished sessions to review yet.")
             continue
 
         days = [session_date(pd.Timestamp(r["asof_ny"], tz=NEW_YORK)) for r in product_rows]
         try:
-            bars = fetch_bars(PRODUCTS[name], min(days), max(days))
+            bars = archived_bars(name, days, now, saved, lambda start, end: fetch_bars(PRODUCTS[name], start, end))
         except Exception as e:  # network / yfinance
             print(f"Could not download {name} prices: {e}", file=sys.stderr)
             code = 1
