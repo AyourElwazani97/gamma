@@ -1,11 +1,26 @@
 //@version=6
-// GEX Levels - draws the levels printed by `python gex.py`.
+// GEX Levels - draws the levels printed by `python gex.py`, and manages Tom Hougaard's failed-breakout
+// trades at the walls: entry, stop, breakeven, target, one trade at a time, daily loss limit.
 // Install once: Pine Editor -> paste this file -> Save -> Add to chart.
 // Every day: indicator Settings -> paste the "TradingView" line from gex.py (ES line on ES chart, NQ line on NQ chart).
-indicator("GEX Levels", overlay = true, max_lines_count = 100, max_labels_count = 100)
+// Trades: use a 5-minute chart. Phone alerts: Alerts -> Create -> Condition "GEX Levels" -> "Any alert() function call".
+// Same rules as gex/fakeouts.py and track.py.
+indicator("GEX Levels", overlay = true, max_lines_count = 200, max_labels_count = 200)
 
 levelsText = input.text_area("", "Levels (paste the TradingView line from gex.py)")
 showLabels = input.bool(true, "Show labels")
+showTrades = input.bool(true, "Show failed-breakout trades", group = "Trades")
+sessionTime = input.session("0930-1600", "Session (New York time)", group = "Trades")
+cancelMinutes = input.int(30, "Cancel an entry not filled after (minutes)", minval = 5, group = "Trades")
+maxLosses = input.int(2, "Stop for the day after this many losses", minval = 1, group = "Trades")
+
+NY = "America/New_York"
+TOLERANCE_PCT = 0.0002  // within 0.02% of a level is a touch, not a push through (gex/reactions.py)
+FAIL_MINUTES = 15  // the close back inside must come within 15 minutes of the push (gex/fakeouts.py)
+GREEN = #26a69a
+RED = #ef5350
+BLUE = #2962ff
+GRAY = #9e9e9e
 
 colorFor(string name) =>
     str.contains(name, "Call") ? color.new(#26a69a, 0) :
@@ -22,6 +37,56 @@ styleFor(string name) =>
 widthFor(string name) =>
     str.contains(name, "0DTE") or str.contains(name, "Magnet") or str.contains(name, "Expected") ? 1 : 2
 
+px(float x) =>
+    str.tostring(math.round_to_mintick(x))
+
+money(float pts) =>
+    (pts >= 0 ? "+" : "-") + px(math.abs(pts)) + " pts (" + (pts >= 0 ? "+$" : "-$") + str.tostring(math.abs(pts) * syminfo.pointvalue, "#.##") + " per contract)"
+
+type Level
+    string name
+    float price
+    bool top = false  // Call Wall / Expected Move High: faded from above (shorts)
+    bool bottom = false  // Put Wall / Expected Move Low: faded from below (longs)
+    int shortPush = -1  // bar that pushed above, waiting for a close back below (-1 = none)
+    float shortHigh
+    bool shortDone = false  // one setup per level and direction per day
+    int longPush = -1
+    float longLow
+    bool longDone = false
+
+type Trade
+    string dir  // "short" / "long"
+    string levelName
+    float level
+    float entry
+    float stop
+    float target  // na = no level beyond: trail the stop
+    string targetName
+    float beAt  // one risk in our favour: move the stop to the entry
+    int signalBar
+    string status = "pending"  // "pending" -> "active" -> "done"
+    bool beMoved = false
+    line entryLine
+    line stopLine
+    line targetLine
+
+var array<Level> levels = array.new<Level>()
+var float flip = na
+if barstate.isfirst
+    for item in str.split(str.replace_all(levelsText, "\n", ""), ";")
+        parts = str.split(item, "=")
+        if array.size(parts) == 2
+            price = str.tonumber(str.replace_all(array.get(parts, 0), " ", ""))
+            name = array.get(parts, 1)
+            if not na(price)
+                isTop = str.contains(name, "Call Wall") or str.contains(name, "Expected Move High")
+                isBottom = str.contains(name, "Put Wall") or str.contains(name, "Expected Move Low")
+                array.push(levels, Level.new(name, price, isTop, isBottom))
+                if str.contains(name, "Gamma Flip")
+                    flip := price
+
+// Draw the levels
 var array<line> drawnLines = array.new<line>()
 var array<label> drawnLabels = array.new<label>()
 
@@ -33,13 +98,163 @@ if barstate.islast
     array.clear(drawnLines)
     array.clear(drawnLabels)
 
-    for item in str.split(str.replace_all(levelsText, "\n", ""), ";")
-        parts = str.split(item, "=")
-        if array.size(parts) == 2
-            price = str.tonumber(str.replace_all(array.get(parts, 0), " ", ""))
-            name = array.get(parts, 1)
-            if not na(price)
-                c = colorFor(name)
-                array.push(drawnLines, line.new(bar_index - 1, price, bar_index, price, extend = extend.both, color = c, style = styleFor(name), width = widthFor(name)))
-                if showLabels
-                    array.push(drawnLabels, label.new(bar_index + 3, price, name + "  " + str.tostring(price), style = label.style_label_left, color = color.new(c, 85), textcolor = c, size = size.small))
+    for lv in levels
+        c = colorFor(lv.name)
+        array.push(drawnLines, line.new(bar_index - 1, lv.price, bar_index, lv.price, extend = extend.both, color = c, style = styleFor(lv.name), width = widthFor(lv.name)))
+        if showLabels
+            array.push(drawnLabels, label.new(bar_index + 3, lv.price, lv.name + "  " + str.tostring(lv.price), style = label.style_label_left, color = color.new(c, 85), textcolor = c, size = size.small))
+
+// Failed-breakout trades, today's session only (the pasted levels are today's)
+newTrade(string dir, Level lv, float entry, float stop) =>
+    float target = na
+    string targetName = ""
+    for other in levels
+        beyond = dir == "short" ? other.price < entry : other.price > entry
+        if beyond and (na(target) or math.abs(other.price - entry) < math.abs(target - entry))
+            target := other.price
+            targetName := other.name
+    risk = math.abs(stop - entry)
+    Trade.new(dir, lv.name, lv.price, entry, stop, target, targetName, dir == "short" ? entry - risk : entry + risk, bar_index)
+
+tfMinutes = timeframe.in_seconds() / 60.0
+failBars = math.max(1, int(math.round(FAIL_MINUTES / tfMinutes)))
+cancelBars = math.max(1, int(math.round(cancelMinutes / tfMinutes)))
+isToday = year(time, NY) == year(last_bar_time, NY) and month(time, NY) == month(last_bar_time, NY) and dayofmonth(time, NY) == dayofmonth(last_bar_time, NY)
+inSession = not na(time(timeframe.period, sessionTime, NY))
+endHour = int(str.tonumber(str.substring(sessionTime, 5, 7)))
+endMinute = int(str.tonumber(str.substring(sessionTime, 7, 9)))
+lastSessionBar = time_close >= timestamp(NY, year(time, NY), month(time, NY), dayofmonth(time, NY), endHour, endMinute)
+
+var Trade trade = na
+var int wins = 0
+var int losses = 0
+var int scratches = 0
+var float pnl = 0.0
+var float sessionOpen = na
+var float prevClose = na
+
+// Only closed bars: a forming bar can still change its close
+if showTrades and isToday and inSession and barstate.isconfirmed and array.size(levels) > 0
+    if na(sessionOpen)
+        sessionOpen := open
+    tol = sessionOpen * TOLERANCE_PCT
+    before = na(prevClose) ? open : prevClose
+    sym = syminfo.root
+
+    // 1) Manage the open trade (from the bar after its signal)
+    bool manage = false
+    if not na(trade)
+        manage := trade.status != "done" and bar_index > trade.signalBar
+    if manage
+        isShort = trade.dir == "short"
+        side = isShort ? "SHORT" : "LONG"
+        if trade.status == "pending"
+            filled = isShort ? low <= trade.entry : high >= trade.entry
+            if filled
+                trade.status := "active"
+                alert(sym + " " + side + " filled at " + px(trade.entry) + ": stop " + px(trade.stop) + (na(trade.target) ? ", no target: trail the stop" : ", target " + px(trade.target)) + ". At " + px(trade.beAt) + " move stop to " + px(trade.entry), alert.freq_all)
+            else if (isShort ? high >= trade.stop : low <= trade.stop) or bar_index - trade.signalBar >= cancelBars or lastSessionBar
+                trade.status := "done"
+                label.new(bar_index, isShort ? high : low, "CANCELLED: not filled", style = isShort ? label.style_label_down : label.style_label_up, color = color.new(GRAY, 30), textcolor = color.white, size = size.small)
+                alert(sym + " " + side + " order cancelled: not filled. Delete the entry order.", alert.freq_all)
+        if trade.status == "active"
+            hitStop = isShort ? high >= trade.stop : low <= trade.stop
+            hitTarget = not na(trade.target) and (isShort ? low <= trade.target : high >= trade.target)
+            // when one bar touches both, count the stop (we can't know which came first)
+            float exitPrice = hitStop ? trade.stop : hitTarget ? trade.target : lastSessionBar ? close : na
+            if not na(exitPrice)
+                pts = isShort ? trade.entry - exitPrice : exitPrice - trade.entry
+                pnl += pts
+                if pts > 0
+                    wins += 1
+                else if pts < 0
+                    losses += 1
+                else
+                    scratches += 1
+                result = hitStop ? (trade.beMoved ? "SCRATCH at breakeven" : "STOPPED") : hitTarget ? "TARGET" : "FLAT at session end"
+                trade.status := "done"
+                label.new(bar_index, isShort ? low : high, result + "\n" + money(pts), style = isShort ? label.style_label_up : label.style_label_down, color = color.new(pts > 0 ? GREEN : pts < 0 ? RED : GRAY, 20), textcolor = color.white, size = size.small)
+                alert(sym + " " + side + " " + result + " at " + px(exitPrice) + ": " + money(pts) + (losses >= maxLosses ? ". " + str.tostring(losses) + " losses today: stop trading." : ""), alert.freq_all)
+            else if not trade.beMoved and (isShort ? low <= trade.beAt : high >= trade.beAt)
+                trade.beMoved := true
+                trade.stop := trade.entry
+                line.set_x2(trade.stopLine, bar_index)
+                trade.stopLine := line.new(bar_index, trade.entry, bar_index + 1, trade.entry, color = RED, style = line.style_dotted, width = 2)
+                alert(sym + " " + side + ": move stop to " + px(trade.entry) + " (breakeven), the trade can no longer lose", alert.freq_all)
+    if not na(trade)
+        if trade.status != "done"
+            for ln in array.from(trade.entryLine, trade.stopLine, trade.targetLine)
+                if not na(ln)
+                    line.set_x2(ln, bar_index + 1)
+
+    // 2) Look for new failed breakouts
+    signals = array.new<Trade>()
+    for lv in levels
+        if lv.top and not lv.shortDone
+            if lv.shortPush < 0 and before < lv.price and high > lv.price + tol
+                lv.shortPush := bar_index
+                lv.shortHigh := high
+            else if lv.shortPush >= 0
+                lv.shortHigh := math.max(lv.shortHigh, high)
+            if lv.shortPush >= 0
+                if close < lv.price
+                    array.push(signals, newTrade("short", lv, low, lv.shortHigh))
+                    lv.shortDone := true
+                    lv.shortPush := -1
+                else if bar_index - lv.shortPush >= failBars - 1
+                    lv.shortPush := -1  // the breakout held: not a failure
+        if lv.bottom and not lv.longDone
+            if lv.longPush < 0 and before > lv.price and low < lv.price - tol
+                lv.longPush := bar_index
+                lv.longLow := low
+            else if lv.longPush >= 0
+                lv.longLow := math.min(lv.longLow, low)
+            if lv.longPush >= 0
+                if close > lv.price
+                    array.push(signals, newTrade("long", lv, high, lv.longLow))
+                    lv.longDone := true
+                    lv.longPush := -1
+                else if bar_index - lv.longPush >= failBars - 1
+                    lv.longPush := -1
+
+    for s in signals
+        isShort = s.dir == "short"
+        risk = math.abs(s.stop - s.entry)
+        float reward = na(s.target) ? na : math.abs(s.entry - s.target)
+        belowFlip = not na(flip) and close <= flip
+        badReward = not na(reward) and reward < risk
+        bool busy = false
+        if not na(trade)
+            busy := trade.status != "done"
+        limitHit = losses >= maxLosses
+        verdict = belowFlip ? "SKIP: below Gamma Flip, walls break more often" : badReward ? "SKIP: reward smaller than risk" : busy ? "SKIP: already in a trade" : limitHit ? "SKIP: daily loss limit reached" : na(flip) ? "OK? no Gamma Flip in the levels, check the regime" : "OK: positive gamma, walls tend to hold"
+        take = not (belowFlip or badReward or busy or limitHit)
+        head = isShort ? "FAILED BREAKOUT above " : "FAILED BREAKDOWN below "
+        order = (isShort ? "SHORT below " : "LONG above ") + px(s.entry) + ", stop " + px(s.stop)
+        plan = na(s.target) ? "no level beyond: trail the stop" : "target " + px(s.target) + " " + s.targetName
+        sizes = "risk " + px(risk) + (na(reward) ? "" : ", reward " + px(reward)) + ". At " + px(s.beAt) + " move stop to " + px(s.entry)
+        label.new(bar_index, isShort ? high : low, head + s.levelName + " " + px(s.level) + "\n" + order + "\n" + plan + "\n" + sizes + "\n" + verdict, style = isShort ? label.style_label_down : label.style_label_up, color = color.new(take ? BLUE : GRAY, take ? 10 : 50), textcolor = color.white, size = size.small)
+        if take
+            s.entryLine := line.new(bar_index, s.entry, bar_index + 1, s.entry, color = BLUE, width = 2)
+            s.stopLine := line.new(bar_index, s.stop, bar_index + 1, s.stop, color = RED, width = 2)
+            if not na(s.target)
+                s.targetLine := line.new(bar_index, s.target, bar_index + 1, s.target, color = GREEN, width = 2)
+            trade := s
+            alert(sym + " " + head + s.levelName + " " + px(s.level) + ": " + order + ", " + plan + ", " + sizes, alert.freq_all)
+
+    prevClose := close
+
+// Today's scoreboard
+var table panel = table.new(position.top_right, 1, 4, bgcolor = color.new(#131722, 10), border_color = #2a2e39, border_width = 1)
+if showTrades and barstate.islast
+    regime = na(flip) ? "No Gamma Flip in the levels" : close > flip ? "Above Gamma Flip " + px(flip) + ": fades allowed" : "Below Gamma Flip " + px(flip) + ": no fades"
+    string status = losses >= maxLosses ? "DONE FOR TODAY: " + str.tostring(losses) + " losses" : "Waiting for a setup"
+    if not na(trade)
+        if trade.status == "pending"
+            status := "Order: " + (trade.dir == "short" ? "SHORT below " : "LONG above ") + px(trade.entry) + ", stop " + px(trade.stop)
+        else if trade.status == "active"
+            status := "In trade: " + (trade.dir == "short" ? "SHORT from " : "LONG from ") + px(trade.entry) + ", stop " + px(trade.stop) + (na(trade.target) ? "" : ", target " + px(trade.target))
+    table.cell(panel, 0, 0, "GEX failed breakouts today", text_color = color.white, text_size = size.small)
+    table.cell(panel, 0, 1, regime, text_color = na(flip) ? GRAY : close > flip ? GREEN : RED, text_size = size.small)
+    table.cell(panel, 0, 2, str.tostring(wins) + " won, " + str.tostring(losses) + " lost, " + str.tostring(scratches) + " scratch: " + money(pnl), text_color = pnl > 0 ? GREEN : pnl < 0 ? RED : color.white, text_size = size.small)
+    table.cell(panel, 0, 3, status, text_color = color.white, text_size = size.small)

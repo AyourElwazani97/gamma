@@ -33,7 +33,7 @@
 |---|---|
 | **Levels in futures prices** | Call Wall, Put Wall, Gamma Flip, Magnets, 0DTE walls and the expected move. They are computed from SPX + SPY (for ES) and NDX + QQQ (for NQ) options and converted to the futures price you actually trade. |
 | **A plan, not just numbers** | Every report starts with the **regime**: is today likely calm or wild? Then it gives the rules that usually work in that regime. |
-| **TradingView in one paste** | Install the included indicator once. Every morning, paste one line and all levels draw themselves. |
+| **TradingView in one paste** | Install the included indicator once. Every morning, paste one line and all levels draw themselves, and failed-breakout trades show up with entry, stop and target, managed bar by bar with phone alerts. |
 | **Live alerts** | `track.py` prints a line when price touches a level, when the level holds or breaks, each time a 5-minute bar closes back through it, when price crosses the Gamma Flip, and when a wall gives a failed-breakout trade (entry, stop, target). |
 | **Proof, not hope** | `review.py` checks your saved levels against what really happened, so you learn which levels work for you. |
 
@@ -207,6 +207,18 @@ The levels were printed at **05:58 New York time**, before the open. Here is how
 | Yellow | Gamma Flip |
 | Purple, dashed | Expected move |
 | Gray, dotted | Magnets |
+
+**Failed-breakout trades on the chart.** On a 5-minute chart the indicator also runs the failed-breakout rules from `track.py` on today's session and manages each trade bar by bar:
+
+- a blue label at the signal with the plan (entry, stop, target, when to move the stop to breakeven) and `OK` or `SKIP` with the reason
+- blue entry, red stop and green target lines; the stop line moves to the entry once price goes one risk in your favour
+- a label when the trade ends: `TARGET`, `STOPPED`, `SCRATCH at breakeven` or `FLAT at session end`, with points and dollars per contract (MES $5, ES $50, MNQ $2, NQ $20 a point)
+- one trade at a time, an unfilled entry is cancelled after 30 minutes, and after 2 losing trades it stops for the day
+- a panel in the top right: the regime, today's score and what to do now
+
+For phone alerts: **Alerts → Create**, condition **GEX Levels → Any alert() function call**. You get a message for each new trade, fill, move to breakeven and exit.
+
+The indicator does not place orders. When it says `SHORT below 7863.25, stop 7876, target 7849.5`, place a sell stop at 7863.25 as a **bracket order** with the stop and target attached, so they are in the market the moment you are filled. Settings let you change the session, the cancel time and the loss limit.
 
 ---
 
