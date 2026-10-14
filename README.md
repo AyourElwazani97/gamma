@@ -4,7 +4,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white" alt="Python 3.10+">
-  <img src="https://img.shields.io/badge/tests-96%20passing-0ca30c" alt="96 tests passing">
+  <img src="https://img.shields.io/badge/tests-98%20passing-0ca30c" alt="98 tests passing">
   <img src="https://img.shields.io/badge/data-free%20CBOE%20options-6e7887" alt="Free CBOE options data">
   <img src="https://img.shields.io/badge/TradingView-indicator%20included-131722?logo=tradingview&logoColor=white" alt="TradingView indicator included">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-a9b2bf" alt="MIT license"></a>
@@ -21,6 +21,7 @@
   <a href="#the-levels">The levels</a> &middot;
   <a href="#a-real-day-october-1-2026">A real day</a> &middot;
   <a href="#tradingview-setup">TradingView</a> &middot;
+  <a href="#ninjatrader-setup">NinjaTrader</a> &middot;
   <a href="#commands">Commands</a> &middot;
   <a href="#faq">FAQ</a>
 </p>
@@ -34,6 +35,7 @@
 | **Levels in futures prices** | Call Wall, Put Wall, Gamma Flip, Magnets, 0DTE walls and the expected move. They are computed from SPX + SPY (for ES) and NDX + QQQ (for NQ) options and converted to the futures price you actually trade. |
 | **A plan, not just numbers** | Every report starts with the **regime**: is today likely calm or wild? Then it gives the rules that usually work in that regime. |
 | **TradingView in one paste** | Install the included indicator once. Every morning, paste one line and all levels draw themselves, and failed-breakout trades show up with entry, stop and target, managed bar by bar with phone alerts. |
+| **NinjaTrader on autopilot (sim)** | A NinjaTrader 8 strategy reads the levels by itself and trades the failed breakouts on a simulation account: bracket orders, breakeven stop, 2-loss daily limit. It refuses to place orders on real accounts. |
 | **Live alerts** | `track.py` prints a line when price touches a level, when the level holds or breaks, each time a 5-minute bar closes back through it, when price crosses the Gamma Flip, and when a wall gives a failed-breakout trade (entry, stop, target). |
 | **Proof, not hope** | `review.py` checks your saved levels against what really happened, so you learn which levels work for you. |
 
@@ -222,6 +224,33 @@ The indicator does not place orders. When it says `SHORT below 7863.25, stop 787
 
 ---
 
+## NinjaTrader setup
+
+[`ninjatrader/GexFailedBreakout.cs`](ninjatrader/GexFailedBreakout.cs) is a NinjaTrader 8 strategy with the same failed-breakout rules, that **trades them for you on a simulation account**. It reads the levels straight from `history/levels_history.csv`, so there is nothing to paste.
+
+**Install once**
+1. Copy `GexFailedBreakout.cs` into `Documents\NinjaTrader 8\bin\Custom\Strategies`.
+2. In NinjaTrader: **New → NinjaScript Editor**, then press **F5** to compile.
+
+**Every day**
+1. Run `python gex.py` (as always).
+2. Open a **5-minute** chart of ES, MES, NQ or MNQ. Micros use the full contract's levels.
+3. **Strategies → GexFailedBreakout**, account **Sim101** (or your own sim account), **Enabled**.
+
+**What it does on a signal it rates OK**
+- a sell stop / buy stop entry with the stop loss and target attached (a bracket), all placed by NinjaTrader
+- moves the stop to the entry once price goes one risk in your favour
+- cancels an entry that isn't filled within 30 minutes, trades one setup at a time, stops for the day after 2 losses and is flat at 16:00
+- draws the levels, the signal with its plan, the entry/stop/target lines and each result, plus a panel with today's score; NinjaTrader alerts and the Output window tell you each step
+
+**Safety:** it only sends orders to **simulation or playback accounts**. On any other account (a broker or prop-firm account) it draws and alerts but never places an order.
+
+**Data:** the strategy needs real 5-minute ES/NQ prices. *Kinetick End Of Day* only has daily bars and the *Simulated Data Feed* invents prices, so for live use you need a real-time connection. With the **Playback Connection** you can replay past sessions (downloaded Market Replay data) on the Playback101 account and watch it trade, faster than real time.
+
+The strategy is checked by `tests/test_ninjatrader.py` (runs where NinjaTrader 8 is installed): it compiles against NinjaTrader's own assemblies and finds exactly the same setups as `gex/fakeouts.py` on every saved session.
+
+---
+
 ## Commands
 
 <details>
@@ -402,8 +431,9 @@ gex/
   bars.py           saved 5-minute bars per session
   output.py         report, chart, TradingView line, history CSV
 tradingview/        GEX Levels indicator (Pine Script v6)
+ninjatrader/        GexFailedBreakout strategy (NinjaScript), trades the setups on a sim account
 history/            your daily levels log, plus bars/ (5-minute bars of each finished session)
-tests/              96 tests (python -m pytest)
+tests/              98 tests (python -m pytest)
 legacy/             the original 2022-2024 scripts
 ```
 
