@@ -4,7 +4,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white" alt="Python 3.10+">
-  <img src="https://img.shields.io/badge/tests-171%20passing-0ca30c" alt="171 tests passing">
+  <img src="https://img.shields.io/badge/tests-177%20passing-0ca30c" alt="177 tests passing">
   <img src="https://img.shields.io/badge/data-free%20CBOE%20options-6e7887" alt="Free CBOE options data">
   <img src="https://img.shields.io/badge/TradingView-indicator%20included-131722?logo=tradingview&logoColor=white" alt="TradingView indicator included">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-a9b2bf" alt="MIT license"></a>
@@ -262,7 +262,7 @@ The strategy is checked by `tests/test_ninjatrader.py` (runs where NinjaTrader 8
 
 **Absorption** is outlined in gold and labelled `ABSORB`. It means heavy selling into the bar's low that could not push price lower: in the lowest 2 prices, sellers traded at least 1.5x the bar's average volume per price, and more than the buyers there, yet the bar closed in its upper half. Someone with limit orders was buying everything the sellers threw at them. The mirror image (heavy buying into the high, closed in the lower half) is absorption of buyers at the high.
 
-When absorption happens **at a GEX level** in the regular session (within 0.02% of it, like a touch in the strategy), the label names the level (`ABSORB 0DTE Put Wall 6650`) and NinjaTrader alerts. It is also logged to `history/absorption.csv` so `review.py` can score it later. It's a **test signal**: watch it, don't trade it, until it has a track record.
+When absorption happens **at a GEX level** in the regular session (within 0.02% of it, like a touch in the strategy), the label names the level (`ABSORB 0DTE Put Wall 6650`) and NinjaTrader alerts. It is also logged to `history/absorption.csv`, and `review.py` paper-trades it in the setup scoreboard (row `Absorption at a level`). Leave the footprint chart open during the session so the signals get logged, and commit `history/` as usual. It's a **test signal**: watch it, don't trade it, until it has a track record.
 
 **Install once**
 1. Copy `GexFootprint.cs` into `Documents\NinjaTrader 8\bin\Custom\Indicators` (`GexFailedBreakout.cs` must be installed too, it reads the levels).
@@ -379,7 +379,7 @@ python review.py --detail --charts output/review  # plus a 5-minute chart per se
 ```
 
 For every level it reports the first touch, whether it was tested as support or resistance, and whether price
-**held** (moved 0.1% away) or **broke** (moved 0.1% through) within 60 minutes. It ends with a scorecard per level type and a **setup scoreboard**: every failed breakout and 0DTE second touch of every saved session, paper-traded with the strategy's rules (stop entry, stop, target, stop to entry after one risk, cancel after 30 minutes), in R (multiples of each trade's risk), for all setups, the ones `track.py` calls OK, and the ones below the Gamma Flip. Second touches with an RSI divergence get their own row, `2nd touch + RSI divergence`. Before it, a small table compares first touches of the levels near the prior session's volume profile with the other levels, to see whether that confluence makes a level hold more often. A **touch odds check** groups every level by the Touch chance `gex.py` would have printed (from the snapshot, or the open if it was taken before, to the close) and shows how often price really got there.
+**held** (moved 0.1% away) or **broke** (moved 0.1% through) within 60 minutes. It ends with a scorecard per level type and a **setup scoreboard**: every failed breakout and 0DTE second touch of every saved session, paper-traded with the strategy's rules (stop entry, stop, target, stop to entry after one risk, cancel after 30 minutes), in R (multiples of each trade's risk), for all setups, the ones `track.py` calls OK, and the ones below the Gamma Flip. Second touches with an RSI divergence get their own row, `2nd touch + RSI divergence`. Absorptions the NinjaTrader footprint logged at a level (`history/absorption.csv`) get the row `Absorption at a level`: long on the break of the absorption bar's high, stop under its low (the mirror image for shorts), next level as target. The footprint needs tick data, so only sessions a footprint chart was open for have any; one from a 1-minute chart is paper-traded from the next 5-minute bar. Before it, a small table compares first touches of the levels near the prior session's volume profile with the other levels, to see whether that confluence makes a level hold more often. A **touch odds check** groups every level by the Touch chance `gex.py` would have printed (from the snapshot, or the open if it was taken before, to the close) and shows how often price really got there.
 yfinance keeps 5-minute bars for only about 60 days, so `review.py` saves each finished session (from 18:00 the evening before to the 16:00 close) to `history/bars/ES_<date>.csv` and reads it from there next time. Run it at least once a month and commit `history/` so every logged day stays testable.
 </details>
 
@@ -477,6 +477,7 @@ gex/
   fakeouts.py       failed breakouts at walls (Tom Hougaard's setup)
   bars.py           saved 5-minute bars per session
   retests.py        second touch of a 0DTE wall (test setup)
+  absorption.py     absorption at a level, logged by the NinjaTrader footprint (test setup)
   paper.py          paper-trades a setup bar by bar
   profile.py        volume profile from 5-minute bars, levels near it
   output.py         report, chart, TradingView line, history CSV
@@ -484,7 +485,7 @@ tradingview/        GEX Levels indicator (Pine Script v6)
 ninjatrader/        GexFailedBreakout strategy (NinjaScript), trades the setups on a sim account,
                     and GexFootprint (footprint chart, absorption at the GEX levels)
 history/            your daily levels log, plus bars/ (5-minute bars of each finished session)
-tests/              171 tests (python -m pytest)
+tests/              177 tests (python -m pytest)
 legacy/             the original 2022-2024 scripts
 ```
 

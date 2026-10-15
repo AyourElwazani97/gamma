@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 from matplotlib.figure import Figure
 
+from gex.absorption import absorptions, load_absorptions
 from gex.bars import archived_bars, trading_day
 from gex.config import PRODUCTS
 from gex.data import CLOSE, NEW_YORK, OPEN, session_date
@@ -31,6 +32,7 @@ How to read it:
   Touch odds: 'Touched' a bit under 'Avg predicted' is normal (options usually price more movement
   than happens). Far apart over many levels = don't lean on gex.py's Touch column."""
 FAILED, RETEST, RETEST_DIV = "Failed breakout", "2nd touch of 0DTE wall", "2nd touch + RSI divergence"
+ABSORB = "Absorption at a level"  # logged by the NinjaTrader footprint
 SCORE_FILTERS = ("all", "OK: above flip, reward >= risk", "below flip")
 TOUCH_EDGES = (0.05, 0.2, 0.4, 0.6)  # predicted-chance buckets for the touch odds check
 TOUCH_LABELS = ("0-5%", "5-20%", "20-40%", "40-60%", "60-100%")
@@ -58,8 +60,9 @@ def touch_odds(row, rth, levels):
     return [(touch_probability(start, price, sd), low <= price <= high) for _, price in levels]
 
 
-def grade(row, bars):
-    """Compare one history row (futures points) with that session's bars. None if no bars."""
+def grade(row, bars, absorption_log=()):
+    """Compare one history row (futures points) with that session's bars. None if no bars.
+    `absorption_log`: rows of absorption.csv, paper-traded like the other setups."""
     day = session_date(pd.Timestamp(row["asof_ny"], tz=NEW_YORK))
     rth = session_bars(bars, day)
     if rth.empty:
@@ -84,6 +87,7 @@ def grade(row, bars):
     rsi_series = rsi(session["Close"]) if not session.empty else None
     retests = second_touches(rth, levels, flip, tolerance=tolerance, threshold=threshold, rsi_series=rsi_series)
     setups += [(RETEST, s) for s in retests] + [(RETEST_DIV, s) for s in retests if s.divergence]
+    setups += [(ABSORB, s) for s in absorptions(absorption_log, row["product"], day, levels, flip)]
     profile = volume_profile(trading_day(bars, prior_trading_day(day)))
     near = [] if profile is None else confluences(levels, profile, o * CONFLUENCE_PCT)
     return {
@@ -148,7 +152,7 @@ def touch_scores(graded):
 def setup_scores(graded):
     """{(setup, filter): (trades, won, lost, net R)} over all sessions' paper trades; unfilled entries don't count."""
     scores = {}
-    for kind in (FAILED, RETEST, RETEST_DIV):
+    for kind in (FAILED, RETEST, RETEST_DIV, ABSORB):
         for name in SCORE_FILTERS:
             taken = [
                 t for g in graded for k, s, t in g.get("trades", [])
@@ -375,6 +379,7 @@ def main(argv=None, today=None):
     today = now.date()
     saved = Path(args.history).parent / "bars"  # finished sessions' bars, kept after Yahoo drops them
     rows = load_history(args.history)
+    absorption_log = load_absorptions(Path(args.history).parent / "absorption.csv")
     code = 0
     reviewed = False
     for name in (p.upper() for p in args.products):
@@ -399,7 +404,7 @@ def main(argv=None, today=None):
             print(f"Could not download {name} prices: {e}", file=sys.stderr)
             code = 1
             continue
-        graded = [g for g in (grade(r, bars) for r in product_rows) if g is not None]
+        graded = [g for g in (grade(r, bars, absorption_log) for r in product_rows) if g is not None]
         if not graded:
             print(f"\n{name}: no price data yet for the saved sessions.")
             continue
