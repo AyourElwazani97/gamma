@@ -243,7 +243,7 @@ The indicator does not place orders. When it says `SHORT below 7863.25, stop 787
 - cancels an entry that isn't filled within 30 minutes, trades one setup at a time, stops for the day after 2 losses and is flat at 16:00
 - draws the levels, the signal with its plan, the entry/stop/target lines and each result, plus a panel with today's score; NinjaTrader alerts and the Output window tell you each step
 
-**Safety:** it only sends orders to **simulation accounts**: NinjaTrader's own Sim accounts, Playback, or any connection in **Simulation** mode. On a **Live** connection (real money) it draws and alerts but never places an order. Prop-firm evaluation accounts can run on simulation servers, so it may trade those: always check the account named in the panel (`Orders on ...`) before enabling it.
+**Safety:** it only sends orders to **simulation accounts**: NinjaTrader's own Sim accounts, Playback, or any connection in **Simulation** mode. On a **Live** connection (real money) it draws and alerts but never places an order. A broker **demo** account (for example NinjaTrader's `DEMO...` accounts) is not marked as simulation, so it only gets orders if you type its exact name in the strategy's **Allowed demo account** setting. Never type a real-money or prop-firm account there. The panel's last line always names the account and whether orders are on.
 
 **Data:** the strategy needs real 5-minute ES/NQ prices. *Kinetick End Of Day* only has daily bars and the *Simulated Data Feed* invents prices, so for live use you need a real-time connection. With the **Playback Connection** you can replay past sessions (downloaded Market Replay data) on the Playback101 account and watch it trade, faster than real time.
 

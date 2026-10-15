@@ -242,7 +242,8 @@ namespace NinjaTrader.NinjaScript.Strategies
         private Dictionary<DateTime, KeyValuePair<List<GexLevel>, double>> levelsByDay;
         private TimeZoneInfo newYork;
         private string product;
-        private bool ordersAllowed = true;
+        private bool ordersAllowed;
+        private string accountInfo = "";
 
         private DateTime day = DateTime.MinValue;
         private GexDetector detector;  // null = no levels for this session
@@ -286,6 +287,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 Contracts = 1;
                 CancelMinutes = 30;
                 MaxLosses = 2;
+                AllowedAccount = "";
             }
             else if (State == State.DataLoaded)
             {
@@ -294,17 +296,28 @@ namespace NinjaTrader.NinjaScript.Strategies
                 if (product == "MES" || product == "MNQ")
                     product = product.Substring(1);  // micros use the full contract's levels
                 LoadLevels();
+                CheckAccount();  // before the historical bars, so the panel never claims orders it won't send
             }
             else if (State == State.Realtime)
+                CheckAccount();
+        }
+
+        /// <summary>Orders only on NinjaTrader's own sim accounts, playback, a connection in Simulation mode, or the one
+        /// demo account the user typed in "Allowed demo account". Never on anything else.</summary>
+        private void CheckAccount()
+        {
+            if (Account == null)
             {
-                // NinjaTrader's own sim accounts, playback, or a broker connection in Simulation mode; never a Live connection
-                ConnectOptions options = Account.Connection != null ? Account.Connection.Options : null;
-                bool simConnection = options != null && options.Mode == NinjaTrader.Cbi.Mode.Simulation;
-                ordersAllowed = Account.Provider == Provider.Simulator || Account.Provider == Provider.Playback || simConnection;
-                Print("GEX: account " + Account.Name + ", provider " + Account.Provider
-                    + (options != null ? ", connection " + options.Name + " (" + options.Mode + ")" : "")
-                    + (ordersAllowed ? ": orders on" : ": NOT a simulation account, signals and alerts only"));
+                ordersAllowed = false;
+                return;
             }
+            ConnectOptions options = Account.Connection != null ? Account.Connection.Options : null;
+            bool simConnection = options != null && options.Mode == NinjaTrader.Cbi.Mode.Simulation;
+            bool typed = !string.IsNullOrWhiteSpace(AllowedAccount) && Account.Name == AllowedAccount.Trim();
+            ordersAllowed = Account.Provider == Provider.Simulator || Account.Provider == Provider.Playback || simConnection || typed;
+            accountInfo = "provider " + Account.Provider + (options != null ? ", connection " + options.Name + " (" + options.Mode + ")" : "");
+            Print("GEX: account " + Account.Name + ", " + accountInfo
+                + (ordersAllowed ? ": orders on" : ": NOT a simulation account, signals and alerts only"));
         }
 
         protected override void OnBarUpdate()
@@ -549,7 +562,9 @@ namespace NinjaTrader.NinjaScript.Strategies
                     + ", stop " + Px(beMoved ? trade.Entry : trade.Stop) + (double.IsNaN(trade.Target) ? "" : ", target " + Px(trade.Target));
             Draw.TextFixed(this, "gexPanel", "GEX failed breakouts " + day.ToString("ddd MMM d") + "\n" + regime + "\n"
                 + wins + " won, " + losses + " lost, " + scratches + " scratch: " + Money(pnlPoints) + "\n" + status
-                + "\n" + (ordersAllowed ? "Orders on " + Account.Name : Account.Name + " is NOT a sim account: no orders"), TextPosition.TopRight);
+                + "\n" + (ordersAllowed ? "Orders on " + AccountName
+                    : AccountName + " is NOT a sim account (" + accountInfo + "): no orders.\nIf it is a demo account, type its name in Allowed demo account"),
+                TextPosition.TopRight);
         }
 
         private int CancelBars { get { return Math.Max(1, (int)Math.Round(CancelMinutes / (double)BarsPeriod.Value)); } }
@@ -599,6 +614,13 @@ namespace NinjaTrader.NinjaScript.Strategies
         [Range(1, int.MaxValue)]
         [Display(Name = "Stop for the day after this many losses", Order = 4, GroupName = "GEX")]
         public int MaxLosses { get; set; }
+
+        [NinjaScriptProperty]
+        [Display(Name = "Allowed demo account", Description = "Exact name of a broker demo account (e.g. DEMO1234567) that may receive orders. "
+            + "NinjaTrader's own Sim accounts never need it. Never type a real-money or prop-firm account here.", Order = 5, GroupName = "GEX")]
+        public string AllowedAccount { get; set; }
+
+        private string AccountName { get { return Account != null ? Account.Name : "No account"; } }
         #endregion
     }
 }
