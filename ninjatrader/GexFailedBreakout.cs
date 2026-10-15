@@ -297,9 +297,13 @@ namespace NinjaTrader.NinjaScript.Strategies
             }
             else if (State == State.Realtime)
             {
-                ordersAllowed = Account.Provider == Provider.Simulator || Account.Provider == Provider.Playback;
-                if (!ordersAllowed)
-                    Print("GEX: " + Account.Name + " is not a simulation account. Signals and alerts only, no orders.");
+                // NinjaTrader's own sim accounts, playback, or a broker connection in Simulation mode; never a Live connection
+                ConnectOptions options = Account.Connection != null ? Account.Connection.Options : null;
+                bool simConnection = options != null && options.Mode == NinjaTrader.Cbi.Mode.Simulation;
+                ordersAllowed = Account.Provider == Provider.Simulator || Account.Provider == Provider.Playback || simConnection;
+                Print("GEX: account " + Account.Name + ", provider " + Account.Provider
+                    + (options != null ? ", connection " + options.Name + " (" + options.Mode + ")" : "")
+                    + (ordersAllowed ? ": orders on" : ": NOT a simulation account, signals and alerts only"));
             }
         }
 
@@ -545,7 +549,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                     + ", stop " + Px(beMoved ? trade.Entry : trade.Stop) + (double.IsNaN(trade.Target) ? "" : ", target " + Px(trade.Target));
             Draw.TextFixed(this, "gexPanel", "GEX failed breakouts " + day.ToString("ddd MMM d") + "\n" + regime + "\n"
                 + wins + " won, " + losses + " lost, " + scratches + " scratch: " + Money(pnlPoints) + "\n" + status
-                + (ordersAllowed ? "" : "\nNOT a sim account: no orders"), TextPosition.TopRight);
+                + "\n" + (ordersAllowed ? "Orders on " + Account.Name : Account.Name + " is NOT a sim account: no orders"), TextPosition.TopRight);
         }
 
         private int CancelBars { get { return Math.Max(1, (int)Math.Round(CancelMinutes / (double)BarsPeriod.Value)); } }

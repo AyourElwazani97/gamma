@@ -41,8 +41,10 @@ class NtCheck
         {
             var res = comp.Emit(ms);
             int errors = 0;
-            // CS1701/CS1702: harmless assembly version notes from NinjaTrader's own references
-            foreach (var d in res.Diagnostics.Where(d => d.Severity >= DiagnosticSeverity.Warning && d.Id != "CS1701" && d.Id != "CS1702"))
+            // CS1701/CS1702: harmless assembly version notes from NinjaTrader's own references.
+            // CS0436: NinjaTrader.Custom.dll already holds the installed copy of the file being checked.
+            var ignored = new[] { "CS1701", "CS1702", "CS0436" };
+            foreach (var d in res.Diagnostics.Where(d => d.Severity >= DiagnosticSeverity.Warning && !ignored.Contains(d.Id)))
             {
                 Console.WriteLine(d.ToString());
                 if (d.Severity == DiagnosticSeverity.Error) errors++;
