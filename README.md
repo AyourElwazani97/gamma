@@ -390,7 +390,7 @@ flowchart LR
 > - These are **estimates** from public data, not the dealers' real books.
 > - Open interest updates **once per day**. Today's new 0DTE positions are not in it.
 > - CBOE data is **15 minutes delayed**.
-> - The report uses the last index close for the regime. Before the open, compare the **live** futures price with the Gamma Flip yourself.
+> - While the index is closed (before 09:30, after 16:00) the report prices everything off the **live futures** minus the closing basis and says so on a `Last price:` line. If it prints a `WARNING: ... is closed` line instead (manual `--basis`, saved files, or yfinance down), LAST PRICE, Dist, Touch and the Expected Move are from the last close: check live futures yourself.
 > - Levels are context, not buy/sell signals. All example trades are hypothetical replays.
 > - **Nothing here is financial advice.** Futures can lose more than you put in.
 
@@ -407,7 +407,7 @@ Every service uses its own assumptions: which options are included, how dealers 
 <details>
 <summary><b>The report says negative gamma, but price is above the flip. Which is right?</b></summary>
 
-Trust the live price. The regime line in the report is computed at the last index close. If futures traded overnight and are now above the Gamma Flip, the market is in positive gamma.
+Trust the live price. Before the open the report already uses live futures (see the `Last price:` line), but futures keep moving after you run it. If they are now above the Gamma Flip, the market is in positive gamma. Rerun `gex.py` to refresh.
 </details>
 
 <details>

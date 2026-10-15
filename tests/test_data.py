@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from gex.data import parse_chain
+from gex.data import index_closed, parse_chain
 
 
 def raw_chain(options, timestamp="2026-09-30 13:00:00", spot=7651.54):
@@ -67,3 +67,20 @@ def test_parses_real_ndx_fixture(ndx_raw):
     assert chain.options["strike"].notna().all()
     assert (chain.options["expiry"] > chain.timestamp).all()
     assert set(chain.options["type"]) == {"C", "P"}
+
+
+def test_index_price_time_from_last_trade(ndx_raw):
+    chain = parse_chain(ndx_raw, "_NDX")
+    assert chain.price_time == pd.Timestamp("2024-04-03 09:32:06", tz="America/New_York")
+    assert index_closed(chain) is False  # 15 minutes old: the normal CBOE delay
+
+
+def test_index_closed_when_its_price_is_the_last_close(ndx_raw):
+    ndx_raw["data"]["last_trade_time"] = "2024-04-02T16:15:00"
+    assert index_closed(parse_chain(ndx_raw, "_NDX")) is True
+
+
+def test_index_not_called_closed_without_a_price_time(ndx_raw):
+    del ndx_raw["data"]["last_trade_time"]
+    chain = parse_chain(ndx_raw, "_NDX")
+    assert chain.price_time is None and index_closed(chain) is False

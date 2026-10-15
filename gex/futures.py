@@ -12,8 +12,17 @@ def basis_from_closes(fut, cash):
     return float((recent.iloc[:, 0] - recent.iloc[:, 1]).median()), both.index[-1]
 
 
-def fetch_basis(product):
-    """Live basis from yfinance 1-minute bars. Returns (basis, timestamp) or None."""
+def last_price(series):
+    """(last price, its time), or None if the series has no prices."""
+    series = series.dropna()
+    if series.empty:
+        return None
+    return float(series.iloc[-1]), series.index[-1]
+
+
+def fetch_futures(product):
+    """(basis, futures price) from yfinance 1-minute bars: basis_from_closes() and last_price() of
+    the futures, each None when missing. While the index is closed the basis is from its last close."""
     import yfinance as yf
 
     # One symbol at a time: yfinance's parallel download can lock its cache database
@@ -21,4 +30,4 @@ def fetch_basis(product):
         yf.Ticker(symbol).history(period="5d", interval="1m")["Close"]
         for symbol in (product.future_symbol, product.index_symbol)
     ]
-    return basis_from_closes(*closes)
+    return basis_from_closes(*closes), last_price(closes[0])

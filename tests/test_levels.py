@@ -185,3 +185,25 @@ def test_analyze_real_ndx_fixture(ndx_raw):
     assert lv.em_low < spot < lv.em_high
     assert lv.move_sd == pytest.approx((lv.em_high - lv.em_low) / 2 * np.sqrt(np.pi / 2))
     assert len(result.profile_x) == len(result.profile_y)
+
+
+def test_analyze_at_a_live_spot():
+    # Quotes were taken with the index at 100; futures say it is at 97 now
+    opts = make_opts(
+        [
+            ("C", 100, 10, 0.2, 1, 2.0, 2.0),  # ATM straddle where the quotes were taken: 4
+            ("P", 100, 10, 0.2, 1, 2.0, 2.0),
+            ("C", 97, 10, 0.2, 1, 4.0, 4.0),  # priced with the index at 100: not today's ATM straddle
+            ("P", 97, 10, 0.2, 1, 1.0, 1.0),
+            ("C", 103, 1000, 0.2, 30),
+            ("P", 94, 1000, 0.2, 30),
+        ]
+    )
+    chain = chain_of(opts, spot=100.0)
+    result = analyze(PRODUCTS["ES"], chain, spot=97.0)
+    lv = result.levels
+    assert lv.spot == 97.0
+    assert (lv.em_low, lv.em_high) == pytest.approx((93.0, 101.0))  # band moves, straddle doesn't
+    assert lv.move_sd == pytest.approx(4.0 * np.sqrt(np.pi / 2))
+    expected = gex_by_strike(combine(chain), 97.0, PRODUCTS["ES"].strike_step)
+    pd.testing.assert_frame_equal(result.by_strike, expected)  # gamma at the live price

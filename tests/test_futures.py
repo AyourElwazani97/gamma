@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from gex.futures import basis_from_closes
+from gex.futures import basis_from_closes, last_price
 
 
 def test_basis_uses_last_common_timestamp():
@@ -24,3 +24,12 @@ def test_basis_none_without_overlap():
     fut = pd.Series([1.0], index=pd.DatetimeIndex(["2026-09-30 10:00"], tz="UTC"))
     cash = pd.Series([1.0], index=pd.DatetimeIndex(["2026-09-30 11:00"], tz="UTC"))
     assert basis_from_closes(fut, cash) is None
+
+
+def test_last_price_skips_missing_values():
+    idx = pd.date_range("2026-10-15 11:00", periods=3, freq="min", tz="UTC")
+    assert last_price(pd.Series([7700.0, 7701.0, float("nan")], index=idx)) == (7701.0, idx[1])
+
+
+def test_last_price_none_when_empty():
+    assert last_price(pd.Series([], dtype=float)) is None

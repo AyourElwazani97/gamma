@@ -86,7 +86,7 @@ def tradingview_string(lv, basis):
     return ";".join(f"{fmt(to_futures(r.index_price, basis))}={r.name}" for r in level_rows(lv))
 
 
-def format_report(lv, basis, basis_note=None):
+def format_report(lv, basis, basis_note=None, spot_note=None):
     asof = lv.asof.tz_convert(NEW_YORK)
     fut_spot = to_futures(lv.spot, basis)
     lines = [
@@ -105,6 +105,8 @@ def format_report(lv, basis, basis_note=None):
     else:
         note = f" ({basis_note})" if basis_note else ""
         lines.append(f"Basis {lv.product} - {lv.index_label}: {basis:+.2f}{note}")
+    if spot_note:
+        lines.append(spot_note)
     lines.append(f"Total GEX: {lv.total_gex_bn:+.2f} $bn per 1% move")
 
     if lv.flip is None:

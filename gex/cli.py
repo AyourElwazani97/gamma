@@ -7,10 +7,10 @@ import pandas as pd
 
 from gex.bars import archived_bars, bars_path, load_bars, trading_day
 from gex.config import PRODUCTS
-from gex.data import NEW_YORK, load_chain
-from gex.futures import fetch_basis
+from gex.data import NEW_YORK, index_closed, load_chain
+from gex.futures import fetch_futures
 from gex.levels import analyze
-from gex.output import append_history, format_report, level_rows, plot_levels, to_futures, tradingview_string
+from gex.output import append_history, fmt, format_report, level_rows, plot_levels, to_futures, tradingview_string
 from gex.profile import CONFLUENCE_PCT, confluences, format_confluence, prior_trading_day, volume_profile
 from gex.review import fetch_bars, session_date
 
@@ -31,20 +31,38 @@ def parse_args(argv):
 
 
 def get_basis(product, args):
-    """(basis, note). Manual --basis wins; offline files never use a live basis."""
+    """(basis, note, live futures (price, time) or None). Manual --basis wins; offline files never
+    use live prices."""
     if args.basis is not None:
-        return args.basis, "manual"
+        return args.basis, "manual", None
     if args.from_dir:
-        return None, None
+        return None, None, None
     try:
-        result = fetch_basis(product)
+        basis, live = fetch_futures(product)
     except Exception as e:  # yfinance breaks from time to time; levels are still useful without it
         print(f"Warning: live basis unavailable ({e})", file=sys.stderr)
+        return None, None, None
+    if basis is None:
+        return None, None, live
+    value, when = basis
+    return value, f"live, {when.tz_convert(NEW_YORK):%a %H:%M} NY", live
+
+
+def live_spot(product, index_chain, basis, live):
+    """(index price to compute the levels at, report line). While the index is closed its CBOE price
+    is the last close, so use live futures minus the basis; (None, None) while it trades."""
+    if not index_closed(index_chain):
         return None, None
-    if result is None:
-        return None, None
-    basis, when = result
-    return basis, f"live, {when.tz_convert(NEW_YORK):%a %H:%M} NY"
+    if basis is None or live is None:
+        return None, (
+            f"WARNING: {product.index_label} is closed: LAST PRICE, Dist, Touch and the Expected Move are from "
+            f"its last close, not where {product.name} trades now. Check live {product.name} futures."
+        )
+    price, when = live
+    return price - basis, (
+        f"Last price: live {product.name} futures {fmt(price)} at {when.tz_convert(NEW_YORK):%a %H:%M} NY "
+        f"({product.index_label} closed at {fmt(index_chain.spot)})"
+    )
 
 
 def prior_profile_note(product, lv, basis, bars_dir, download):
@@ -82,14 +100,15 @@ def run_product(product, args):
                 file=sys.stderr,
             )
 
+    basis, basis_note, live = get_basis(product, args)
+    spot, spot_note = live_spot(product, index_chain, basis, live)
     try:
-        analysis = analyze(product, index_chain, etf_chain)
+        analysis = analyze(product, index_chain, etf_chain, spot=spot)
     except ValueError as e:
         print(str(e), file=sys.stderr)
         return 1
     lv = analysis.levels
-    basis, basis_note = get_basis(product, args)
-    print(format_report(lv, basis, basis_note))
+    print(format_report(lv, basis, basis_note, spot_note))
     if basis is not None:  # the profile is in futures prices
         try:
             note = prior_profile_note(product, lv, basis, Path(args.history).parent / "bars", not args.from_dir)

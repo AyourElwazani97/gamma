@@ -175,13 +175,15 @@ def move_sd(opts, spot, iv30):
     return straddle * STRADDLE_TO_SD if straddle is not None else _iv30_day_move(spot, iv30)
 
 
-def analyze(product, index_chain, etf_chain=None):
-    """Compute all levels for a product from its index chain and optional ETF chain."""
+def analyze(product, index_chain, etf_chain=None, spot=None):
+    """Compute all levels for a product from its index chain and optional ETF chain, with the index
+    at `spot` (default: the chain's price)."""
     opts = combine(index_chain, etf_chain)
     if opts.empty:
         raise ValueError(f"No live options with open interest in {index_chain.ticker}")
 
-    spot = index_chain.spot
+    quoted_at = index_chain.spot  # index price the option quotes go with
+    spot = quoted_at if spot is None else spot
     step = product.strike_step
     by_strike = gex_by_strike(opts, spot, step)
     grid, profile = gamma_profile(opts, spot)
@@ -194,7 +196,8 @@ def analyze(product, index_chain, etf_chain=None):
         gex_by_strike(opts[expiry_day == next_expiry], spot, step), spot
     )
     index_opts = opts[opts["source"] == "index"]
-    em_low, em_high = expected_move(index_opts, spot, index_chain.iv30)
+    # The straddle is ATM where the quotes were taken; the band goes around today's price
+    em_low, em_high = (x + spot - quoted_at for x in expected_move(index_opts, quoted_at, index_chain.iv30))
 
     sources = [index_chain.ticker]
     if (opts["source"] == "etf").any():
@@ -217,6 +220,6 @@ def analyze(product, index_chain, etf_chain=None):
         em_low=em_low,
         em_high=em_high,
         sources=sources,
-        move_sd=move_sd(index_opts, spot, index_chain.iv30),
+        move_sd=move_sd(index_opts, quoted_at, index_chain.iv30),
     )
     return Analysis(levels=levels, by_strike=by_strike, profile_x=grid, profile_y=profile)

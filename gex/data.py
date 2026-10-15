@@ -10,6 +10,7 @@ NEW_YORK = "America/New_York"
 # Standard monthly index options settle at the open; weeklies (SPXW, NDXP) at the close
 AM_SETTLED_ROOTS = {"SPX", "NDX"}
 SYMBOL_PATTERN = r"^(?P<root>[A-Z]+)(?P<expiry>\d{6})(?P<type>[CP])(?P<strike>\d{8})$"
+STALE_PRICE = pd.Timedelta(minutes=30)  # CBOE runs 15 minutes late; older = the index isn't trading
 
 
 @dataclass
@@ -19,6 +20,7 @@ class Chain:
     timestamp: pd.Timestamp  # UTC
     iv30: float | None
     options: pd.DataFrame  # root, expiry, type, strike, iv, oi, bid, ask, multiplier
+    price_time: pd.Timestamp | None = None  # UTC time of `spot`
 
 
 def fetch_raw(ticker, timeout=30):
@@ -69,10 +71,17 @@ def parse_chain(raw, ticker):
     )
     live = (options["expiry"] > timestamp) & (options["oi"] > 0) & (options["iv"] > 0)
 
+    last_trade = data.get("last_trade_time")
     return Chain(
         ticker=ticker,
         spot=float(data["current_price"]),
         timestamp=timestamp,
         iv30=data.get("iv30"),
         options=options.loc[live].reset_index(drop=True),
+        price_time=pd.Timestamp(last_trade, tz=NEW_YORK).tz_convert("UTC") if last_trade else None,
     )
+
+
+def index_closed(chain):
+    """True when the chain's index price is an old close (before the open, after the close)."""
+    return chain.price_time is not None and chain.timestamp - chain.price_time > STALE_PRICE
