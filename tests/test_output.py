@@ -25,6 +25,7 @@ def sample_levels(**overrides):
         em_low=7604.54,
         em_high=7698.54,
         sources=["_SPX", "SPY"],
+        move_sd=50.0,
     )
     values.update(overrides)
     return Levels(**values)
@@ -59,6 +60,23 @@ def test_report_mentions_regime_price_and_levels():
     assert "NEGATIVE GAMMA" in report
     assert "8040" in report and "8000" in report
     assert "LAST PRICE" in report
+
+
+def _row(report, name):
+    return next(line for line in report.splitlines() if line.strip().startswith(name))
+
+
+def test_report_shows_touch_chance_per_level():
+    report = format_report(sample_levels(), basis=40.0)
+    assert "Touch" in report
+    # Magnet 7600 is 1.03 sd below spot 7651.54 (sd 50): 2 * N(-1.03) = 30%
+    assert "30%" in _row(report, "Magnet 1")
+    assert "<1%" in _row(report, "Call Wall")  # 6.8 sd away
+
+
+def test_report_without_move_sd_leaves_touch_blank():
+    report = format_report(sample_levels(move_sd=None), basis=40.0)
+    assert "%" not in _row(report, "Magnet 1")
 
 
 def test_report_warns_without_basis():

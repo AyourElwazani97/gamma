@@ -1,3 +1,5 @@
+import math
+
 import numpy as np
 
 SQRT_2PI = np.sqrt(2 * np.pi)
@@ -19,3 +21,13 @@ def bs_gamma(spot, strike, iv, t):
 def dollar_gamma(gamma, oi, multiplier, spot):
     """Dollars dealers must trade per 1% move in the underlying."""
     return gamma * oi * multiplier * spot**2 * 0.01
+
+
+def touch_probability(spot, level, sd):
+    """Chance price trades at `level` before the horizon, if the move to then is a random walk with
+    standard deviation `sd` (points): twice the chance of finishing beyond it (reflection principle).
+    None without a usable sd."""
+    if sd is None or sd <= 0:
+        return None
+    z = abs(math.log(level / spot)) / (sd / spot)
+    return math.erfc(z / math.sqrt(2))

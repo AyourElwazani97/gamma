@@ -68,22 +68,25 @@ REGIME: NEGATIVE GAMMA (price below the Gamma Flip)
   - Smaller size, wider stops. Walls can break instead of holding.
   - Reclaiming the Gamma Flip = market usually calms down.
 
-  Level                      ES        SPX    Dist  Meaning
-  Call Wall                8156       8100    +434  Biggest resistance: rallies tend to stall or reject here
-  Magnet 2                 7856       7800    +134  Price gets pulled here and often pins
-  Expected Move High    7783.25     7727.3     +61  Top of the options-implied range for Fri Oct 02
-  0DTE Call Wall           7741       7685     +18  Resistance for Fri Oct 02 (that day's expiry only)
-  Gamma Flip               7733    7676.93     +10  Regime line: above = calm/ranging, below = fast/trending
-  >>> LAST PRICE         7722.5    7666.45       0  <<<
-  Magnet 3                 7706       7650     -16  Price gets pulled here and often pins
-  0DTE Put Wall            7681       7625     -42  Support for Fri Oct 02 (that day's expiry only)
-  Expected Move Low     7661.75     7605.6     -61  Bottom of the options-implied range for Fri Oct 02
-  Magnet 1                 7656       7600     -66  Price gets pulled here and often pins
-  Put Wall                 7556       7500    -166  Biggest support: if it breaks, selling can speed up
+  Touch = chance price trades at the level before the Fri Oct 02 close (options-implied).
+  Level                      ES        SPX    Dist  Touch  Meaning
+  Call Wall                8156       8100    +434    <1%  Biggest resistance: rallies tend to stall or reject here
+  Magnet 2                 7856       7800    +134     8%  Price gets pulled here and often pins
+  Expected Move High    7783.25     7727.3     +61    43%  Top of the options-implied range for Fri Oct 02
+  0DTE Call Wall           7741       7685     +18    81%  Resistance for Fri Oct 02 (that day's expiry only)
+  Gamma Flip               7733    7676.93     +10    89%  Regime line: above = calm/ranging, below = fast/trending
+  >>> LAST PRICE         7722.5    7666.45       0         <<<
+  Magnet 3                 7706       7650     -16    83%  Price gets pulled here and often pins
+  0DTE Put Wall            7681       7625     -42    59%  Support for Fri Oct 02 (that day's expiry only)
+  Expected Move Low     7661.75     7605.6     -61    42%  Bottom of the options-implied range for Fri Oct 02
+  Magnet 1                 7656       7600     -66    38%  Price gets pulled here and often pins
+  Put Wall                 7556       7500    -166     3%  Biggest support: if it breaks, selling can speed up
 
 TradingView (paste into the GEX Levels indicator settings):
 8156=Call Wall;7856=Magnet 2;7783.25=Expected Move High;7741=0DTE Call Wall;7733=Gamma Flip;...
 ```
+
+**Touch** is the chance price trades at that level before today's close, from Black-Scholes: the expected move (ATM straddle) is about 0.8 standard deviations, and the chance of *touching* a level is twice the chance of *closing* beyond it. The Expected Move edges are always about 42%. Use it to tell which levels are in play today: a wall at 3% is not today's trade. Options usually price a bit more movement than happens, so treat the middle numbers as slightly high (`review.py` keeps score).
 
 > [!TIP]
 > Run it **before the open, after about 06:00 New York time**. Open interest (how many option contracts exist) is only updated once per night, so that is when the day's levels are ready.
@@ -345,7 +348,7 @@ python review.py --detail --charts output/review  # plus a 5-minute chart per se
 ```
 
 For every level it reports the first touch, whether it was tested as support or resistance, and whether price
-**held** (moved 0.1% away) or **broke** (moved 0.1% through) within 60 minutes. It ends with a scorecard per level type and a **setup scoreboard**: every failed breakout and 0DTE second touch of every saved session, paper-traded with the strategy's rules (stop entry, stop, target, stop to entry after one risk, cancel after 30 minutes), in R (multiples of each trade's risk), for all setups, the ones `track.py` calls OK, and the ones below the Gamma Flip. Second touches with an RSI divergence get their own row, `2nd touch + RSI divergence`. Before it, a small table compares first touches of the levels near the prior session's volume profile with the other levels, to see whether that confluence makes a level hold more often.
+**held** (moved 0.1% away) or **broke** (moved 0.1% through) within 60 minutes. It ends with a scorecard per level type and a **setup scoreboard**: every failed breakout and 0DTE second touch of every saved session, paper-traded with the strategy's rules (stop entry, stop, target, stop to entry after one risk, cancel after 30 minutes), in R (multiples of each trade's risk), for all setups, the ones `track.py` calls OK, and the ones below the Gamma Flip. Second touches with an RSI divergence get their own row, `2nd touch + RSI divergence`. Before it, a small table compares first touches of the levels near the prior session's volume profile with the other levels, to see whether that confluence makes a level hold more often. A **touch odds check** groups every level by the Touch chance `gex.py` would have printed (from the snapshot, or the open if it was taken before, to the close) and shows how often price really got there.
 yfinance keeps 5-minute bars for only about 60 days, so `review.py` saves each finished session (from 18:00 the evening before to the 16:00 close) to `history/bars/ES_<date>.csv` and reads it from there next time. Run it at least once a month and commit `history/` so every logged day stays testable.
 </details>
 

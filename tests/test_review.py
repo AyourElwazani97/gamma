@@ -3,6 +3,7 @@ from datetime import date
 import pandas as pd
 import pytest
 
+from gex.reactions import levels_from_row
 from gex.review import grade, session_bars, session_date, summarize
 
 NY = "America/New_York"
@@ -281,3 +282,36 @@ def test_divergence_trades_get_their_own_scoreboard_row():
     g = grade(history_row(asof_ny="2026-09-30 08:00"), bars("2026-09-30", [("09:30", 7700, 7720, 7645, 7690)]))
     g["trades"] = graded[0]["trades"] + [paper(FAILED, 1.0)]
     assert "2nd touch + RSI divergence" in format_review("ES", [g])
+
+
+def test_grade_checks_touch_odds_per_level():
+    # Logged the evening before: odds run from the open (7700); 1 sd = 50 / 0.8 = 62.7 pts
+    day_bars = bars("2026-10-01", [("09:30", 7700, 7720, 7645, 7690), ("15:55", 7690, 7755, 7680, 7710)])
+    g = grade(history_row(), day_bars)
+    odds = g["touch_odds"]  # highest level first: call wall 7800, EM high 7760, flip 7740, EM low 7660, put wall 7650
+    assert [touched for _, touched in odds] == [False, False, True, True, True]
+    assert odds[0][0] == pytest.approx(0.113, abs=0.001)
+
+
+def test_touch_odds_start_at_the_snapshot_when_logged_mid_session():
+    day_bars = bars("2026-10-01", [("09:30", 7700, 7720, 7645, 7690), ("12:00", 7690, 7750, 7680, 7745)])
+    g = grade(history_row(asof_ny="2026-10-01 12:00"), day_bars)
+    by_price = {price: touched for (_, price), (_, touched) in zip(levels_from_row(history_row()), g["touch_odds"])}
+    assert by_price[7650.0] is False  # the 09:30 dip came before the snapshot
+
+
+def test_touch_scores_by_predicted_bucket():
+    from gex.review import touch_scores
+
+    graded = [{"touch_odds": [(0.01, False), (0.03, True), (0.5, True)]}, {"touch_odds": [(0.45, False)]}]
+    assert touch_scores(graded) == [
+        ("0-5%", 2, pytest.approx(0.02), 0.5),
+        ("40-60%", 2, pytest.approx(0.475), 0.5),
+    ]
+
+
+def test_review_prints_the_touch_odds_check():
+    from gex.review import format_review
+
+    g = grade(history_row(), bars("2026-10-01", [("09:30", 7700, 7720, 7645, 7690)]))
+    assert "Touch odds check" in format_review("ES", [g])

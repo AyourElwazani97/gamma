@@ -1,5 +1,6 @@
 """Grade saved levels against what the futures actually did in the regular session."""
 import argparse
+import bisect
 import csv
 import sys
 from collections import Counter
@@ -14,6 +15,8 @@ from gex.bars import archived_bars, trading_day
 from gex.config import PRODUCTS
 from gex.data import NEW_YORK
 from gex.fakeouts import failed_breakouts
+from gex.greeks import touch_probability
+from gex.levels import STRADDLE_TO_SD
 from gex.output import BG, GRAY, GREEN, GRID, RED, TEXT, YELLOW, _level_color, fmt
 from gex.paper import simulate
 from gex.profile import CONFLUENCE_PCT, confluences, prior_trading_day, volume_profile
@@ -25,9 +28,13 @@ HOW_TO_READ = """
 How to read it:
   Rng/EM < 1 = quieter day than options priced, > 1 = wilder.
   If negative gamma days keep coming in wilder, respect the regime: smaller size, don't fade.
-  Walls that 'held' were good fade spots; 'BROKE' walls were breakout days."""
+  Walls that 'held' were good fade spots; 'BROKE' walls were breakout days.
+  Touch odds: 'Touched' a bit under 'Avg predicted' is normal (options usually price more movement
+  than happens). Far apart over many levels = don't lean on gex.py's Touch column."""
 FAILED, RETEST, RETEST_DIV = "Failed breakout", "2nd touch of 0DTE wall", "2nd touch + RSI divergence"
 SCORE_FILTERS = ("all", "OK: above flip, reward >= risk", "below flip")
+TOUCH_EDGES = (0.05, 0.2, 0.4, 0.6)  # predicted-chance buckets for the touch odds check
+TOUCH_LABELS = ("0-5%", "5-20%", "20-40%", "40-60%", "60-100%")
 
 
 def session_date(asof):
@@ -48,6 +55,18 @@ def session_bars(bars, day):
 
 def _num(value):
     return None if value in ("", None) else float(value)
+
+
+def touch_odds(row, rth, levels):
+    """[(predicted touch chance, touched)] per level, from the snapshot (or the open, if it was taken
+    before) to the close. 1 sd = logged expected move (an ATM straddle) / 0.8, as gex.py's Touch column."""
+    em_low, em_high = _num(row.get("em_low")), _num(row.get("em_high"))
+    rest = rth[rth.index >= pd.Timestamp(row["asof_ny"], tz=NEW_YORK)]
+    if em_low is None or em_high is None or em_high <= em_low or rest.empty:
+        return []
+    start, high, low = float(rest["Open"].iloc[0]), float(rest["High"].max()), float(rest["Low"].min())
+    sd = (em_high - em_low) / 2 * STRADDLE_TO_SD
+    return [(touch_probability(start, price, sd), low <= price <= high) for _, price in levels]
 
 
 def grade(row, bars):
@@ -98,6 +117,7 @@ def grade(row, bars):
         "trades": [(kind, s, simulate(s, rth)) for kind, s in sorted(setups, key=lambda ks: ks[1].time)],
         "profile": profile,  # prior session's volume profile, None without its bars
         "confluence": [name for name, *_ in near],  # levels near it
+        "touch_odds": touch_odds(row, rth, levels),
         "bars": rth,
     }
 
@@ -121,6 +141,19 @@ def confluence_scores(graded):
         for r in g.get("reactions", []):
             groups["near the profile" if r.name in g["confluence"] else "other levels"][r.outcome] += 1
     return groups
+
+
+def touch_scores(graded):
+    """[(bucket, levels, avg predicted, share touched)] per predicted-chance bucket; empty buckets left out."""
+    buckets = [[] for _ in TOUCH_LABELS]
+    for g in graded:
+        for p, touched in g.get("touch_odds", []):
+            buckets[bisect.bisect_left(TOUCH_EDGES, p)].append((p, touched))
+    return [
+        (label, len(b), float(np.mean([p for p, _ in b])), float(np.mean([t for _, t in b])))
+        for label, b in zip(TOUCH_LABELS, buckets)
+        if b
+    ]
 
 
 def setup_scores(graded):
@@ -242,6 +275,14 @@ def format_review(product, graded):
             lines.append(
                 f"  {group:<17}  {reached:>7}  {counts['held']:>4}  {counts['broke']:>5}  {counts['stalled']:>7}"
             )
+    if any(g.get("touch_odds") for g in graded):
+        lines += [
+            "",
+            "Touch odds check (gex.py's Touch column vs what happened, snapshot or open to the close):",
+            f"  {'Predicted':<9}  {'Levels':>6}  {'Avg predicted':>13}  {'Touched':>7}",
+        ]
+        for label, n, predicted, touched in touch_scores(graded):
+            lines.append(f"  {label:<9}  {n:>6}  {predicted:>13.0%}  {touched:>7.0%}")
     lines += [
         "",
         "Setup scoreboard (paper trades: stop entry, stop, target, stop to entry after 1R; R = each trade's risk):",

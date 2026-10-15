@@ -10,6 +10,7 @@ from gex.levels import (
     analyze,
     combine,
     expected_move,
+    move_sd,
     find_flip,
     gamma_profile,
     gex_by_strike,
@@ -122,6 +123,17 @@ def test_expected_move_falls_back_to_iv30():
     assert (low, high) == pytest.approx((100 - move, 100 + move))
 
 
+def test_move_sd_from_straddle_is_straddle_over_0_8():
+    # ATM straddle ~ sqrt(2/pi) = 0.8 sd of the move to expiry
+    opts = make_opts([("C", 100, 10, 0.2, 1, 9.0, 11.0), ("P", 100, 10, 0.2, 1, 7.0, 9.0)])
+    assert move_sd(opts, spot=101.0, iv30=15.0) == pytest.approx(18.0 * np.sqrt(np.pi / 2))
+
+
+def test_move_sd_falls_back_to_iv30_day():
+    opts = make_opts([("C", 100, 10, 0.2, 1)])  # no quotes
+    assert move_sd(opts, spot=100.0, iv30=16.0) == pytest.approx(100 * 0.16 / np.sqrt(252))
+
+
 def test_etf_conversion_keeps_dollar_gamma():
     index = chain_of(make_opts([("C", 7650, 1, 0.15, 10)]), spot=7651.54)
     etf = chain_of(make_opts([("C", 765, 10, 0.15, 10)]), spot=765.154, ticker="SPY")
@@ -171,4 +183,5 @@ def test_analyze_real_ndx_fixture(ndx_raw):
         assert abs(level - spot) <= spot * 0.15
     assert lv.flip is None or abs(lv.flip - spot) <= spot * 0.10
     assert lv.em_low < spot < lv.em_high
+    assert lv.move_sd == pytest.approx((lv.em_high - lv.em_low) / 2 * np.sqrt(np.pi / 2))
     assert len(result.profile_x) == len(result.profile_y)

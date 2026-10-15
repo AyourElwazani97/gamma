@@ -8,6 +8,7 @@ from matplotlib.figure import Figure
 
 from gex.config import TICK
 from gex.data import NEW_YORK
+from gex.greeks import touch_probability
 
 CHART_RANGE = 0.06  # chart shows spot +- 6%
 STALE_DAYS = 3
@@ -72,6 +73,14 @@ def level_rows(lv):
     return sorted(merged.values(), key=lambda r: r.index_price, reverse=True)
 
 
+def touch_text(lv, price):
+    """Chance of trading at `price` before the next expiry's close, as text; blank without move_sd."""
+    p = touch_probability(lv.spot, price, lv.move_sd)
+    if p is None:
+        return ""
+    return "<1%" if p < 0.005 else f"{p:.0%}"
+
+
 def tradingview_string(lv, basis):
     """`price=Name;price=Name` in futures points, read by tradingview/gex_levels.pine."""
     return ";".join(f"{fmt(to_futures(r.index_price, basis))}={r.name}" for r in level_rows(lv))
@@ -107,9 +116,13 @@ def format_report(lv, basis, basis_note=None):
     lines += ["  " + line for line in PLAYBOOK[lv.regime]]
 
     name_w = max([len(r.name) for r in level_rows(lv)] + [12])
-    header = f"  {'Level':<{name_w}}  {lv.product:>9}  {lv.index_label:>9}  {'Dist':>6}  Meaning"
-    lines += ["", header, "  " + "-" * (len(header) + 30)]
-    now_row = f"  {'>>> LAST PRICE':<{name_w}}  {fmt(fut_spot):>9}  {fmt(lv.spot):>9}  {0:>6}  <<<"
+    header = f"  {'Level':<{name_w}}  {lv.product:>9}  {lv.index_label:>9}  {'Dist':>6}  {'Touch':>5}  Meaning"
+    lines.append("")
+    if lv.move_sd is not None:
+        day = f"{lv.next_expiry:%a %b %d}" if lv.next_expiry else "the next expiry's"
+        lines.append(f"  Touch = chance price trades at the level before the {day} close (options-implied).")
+    lines += [header, "  " + "-" * (len(header) + 30)]
+    now_row = f"  {'>>> LAST PRICE':<{name_w}}  {fmt(fut_spot):>9}  {fmt(lv.spot):>9}  {0:>6}  {'':>5}  <<<"
     printed_now = False
     for r in level_rows(lv):
         if not printed_now and r.index_price < lv.spot:
@@ -117,7 +130,8 @@ def format_report(lv, basis, basis_note=None):
             printed_now = True
         fut = to_futures(r.index_price, basis)
         lines.append(
-            f"  {r.name:<{name_w}}  {fmt(fut):>9}  {fmt(r.index_price):>9}  {fut - fut_spot:>+6.0f}  {r.meaning}"
+            f"  {r.name:<{name_w}}  {fmt(fut):>9}  {fmt(r.index_price):>9}  {fut - fut_spot:>+6.0f}"
+            f"  {touch_text(lv, r.index_price):>5}  {r.meaning}"
         )
     if not printed_now:
         lines.append(now_row)

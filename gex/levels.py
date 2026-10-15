@@ -14,6 +14,7 @@ MAGNET_RANGE = 0.02  # magnets searched within spot +- 2% (intraday reach)
 N_MAGNETS = 3
 MIN_HOURS = 1.0  # floor on time to expiry so 0DTE gamma doesn't blow up
 HOURS_PER_YEAR = 365 * 24
+STRADDLE_TO_SD = np.sqrt(np.pi / 2)  # an ATM straddle is worth about 0.8 sd of the move to expiry
 
 
 @dataclass
@@ -36,6 +37,7 @@ class Levels:
     em_low: float
     em_high: float
     sources: list
+    move_sd: float | None = None  # 1 sd of the index move to the next expiry's close, in points
 
 
 @dataclass
@@ -134,28 +136,43 @@ def magnets(by_strike, spot, exclude=()):
     return [float(s) for s in ranked[ranked > 0].index[:N_MAGNETS]]
 
 
-def expected_move(opts, spot, iv30):
-    """(low, high) = spot -+ ATM straddle of the nearest expiry; fallback: 1-day move from iv30.
+def atm_straddle(opts, spot):
+    """Mid price of the ATM straddle of the nearest expiry, or None without quotes.
 
     `opts` must hold index options only (ETF prices are in ETF dollars).
     """
     quoted = opts[(opts["bid"] > 0) & (opts["ask"] > 0)]
-    if not quoted.empty:
-        day = quoted["expiry"].dt.tz_convert(NEW_YORK).dt.date
-        nearest = quoted[day == day.min()]
-        # On monthly expiry days take the PM-settled weekly, not the AM-settled monthly
-        nearest = nearest[nearest["expiry"] == nearest["expiry"].max()]
-        mid = (nearest["bid"] + nearest["ask"]) / 2
-        calls = mid[nearest["type"] == "C"].groupby(nearest["strike"]).mean()
-        puts = mid[nearest["type"] == "P"].groupby(nearest["strike"]).mean()
-        straddle = (calls + puts).dropna()
-        if not straddle.empty:
-            atm = straddle.index[np.abs(straddle.index.to_numpy() - spot).argmin()]
-            move = float(straddle[atm])
-            return spot - move, spot + move
+    if quoted.empty:
+        return None
+    day = quoted["expiry"].dt.tz_convert(NEW_YORK).dt.date
+    nearest = quoted[day == day.min()]
+    # On monthly expiry days take the PM-settled weekly, not the AM-settled monthly
+    nearest = nearest[nearest["expiry"] == nearest["expiry"].max()]
+    mid = (nearest["bid"] + nearest["ask"]) / 2
+    calls = mid[nearest["type"] == "C"].groupby(nearest["strike"]).mean()
+    puts = mid[nearest["type"] == "P"].groupby(nearest["strike"]).mean()
+    straddle = (calls + puts).dropna()
+    if straddle.empty:
+        return None
+    return float(straddle[straddle.index[np.abs(straddle.index.to_numpy() - spot).argmin()]])
 
-    move = spot * (iv30 or 0) / 100 / np.sqrt(252)
+
+def _iv30_day_move(spot, iv30):
+    return spot * (iv30 or 0) / 100 / np.sqrt(252)
+
+
+def expected_move(opts, spot, iv30):
+    """(low, high) = spot -+ ATM straddle of the nearest expiry; fallback: 1-day move from iv30."""
+    straddle = atm_straddle(opts, spot)
+    move = straddle if straddle is not None else _iv30_day_move(spot, iv30)
     return spot - move, spot + move
+
+
+def move_sd(opts, spot, iv30):
+    """One standard deviation of the index move to the nearest expiry's close, in points, from the
+    ATM straddle; fallback: 1-day move from iv30."""
+    straddle = atm_straddle(opts, spot)
+    return straddle * STRADDLE_TO_SD if straddle is not None else _iv30_day_move(spot, iv30)
 
 
 def analyze(product, index_chain, etf_chain=None):
@@ -176,7 +193,8 @@ def analyze(product, index_chain, etf_chain=None):
     next_call_wall, next_put_wall = walls(
         gex_by_strike(opts[expiry_day == next_expiry], spot, step), spot
     )
-    em_low, em_high = expected_move(opts[opts["source"] == "index"], spot, index_chain.iv30)
+    index_opts = opts[opts["source"] == "index"]
+    em_low, em_high = expected_move(index_opts, spot, index_chain.iv30)
 
     sources = [index_chain.ticker]
     if (opts["source"] == "etf").any():
@@ -199,5 +217,6 @@ def analyze(product, index_chain, etf_chain=None):
         em_low=em_low,
         em_high=em_high,
         sources=sources,
+        move_sd=move_sd(index_opts, spot, index_chain.iv30),
     )
     return Analysis(levels=levels, by_strike=by_strike, profile_x=grid, profile_y=profile)
