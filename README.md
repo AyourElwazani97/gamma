@@ -4,7 +4,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white" alt="Python 3.10+">
-  <img src="https://img.shields.io/badge/tests-132%20passing-0ca30c" alt="132 tests passing">
+  <img src="https://img.shields.io/badge/tests-140%20passing-0ca30c" alt="140 tests passing">
   <img src="https://img.shields.io/badge/data-free%20CBOE%20options-6e7887" alt="Free CBOE options data">
   <img src="https://img.shields.io/badge/TradingView-indicator%20included-131722?logo=tradingview&logoColor=white" alt="TradingView indicator included">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-a9b2bf" alt="MIT license"></a>
@@ -331,6 +331,8 @@ Alerts from a replay of October 8, 2026:
 The NQ short reached its target. The ES long came within 2 points of its target, then fell back, so the breakeven stop turned a loss into a scratch. This is a heads-up, not a proven system yet: only a handful of sessions are logged.
 
 **Second touch of a 0DTE wall (test setup).** Price often comes back to a 0DTE wall two or three times. When the first touch bounces at least 0.1% and a second touch closes back on the same side within 15 minutes, the tracker prints `2ND TOUCH of ...` with the same kind of plan (entry on the break of that bar, stop beyond the retest, next level as target). It is marked `TEST setup, not proven: paper-trade only` in every regime until the setup scoreboard in `review.py` shows it earns its place.
+
+The alert also says whether the second touch has an **RSI divergence**: the retest goes as far as the first touch or further (an equal or lower low at support, an equal or higher high at resistance) while RSI(14) on the 5-minute closes does not (a higher RSI at support, a lower one at resistance). That's a sign the sellers or buyers are running out at the wall. Example: `2ND TOUCH of 0DTE Put Wall 7719 with RSI divergence (RSI 31 -> 38)`.
 </details>
 
 <details>
@@ -343,7 +345,7 @@ python review.py --detail --charts output/review  # plus a 5-minute chart per se
 ```
 
 For every level it reports the first touch, whether it was tested as support or resistance, and whether price
-**held** (moved 0.1% away) or **broke** (moved 0.1% through) within 60 minutes. It ends with a scorecard per level type and a **setup scoreboard**: every failed breakout and 0DTE second touch of every saved session, paper-traded with the strategy's rules (stop entry, stop, target, stop to entry after one risk, cancel after 30 minutes), in R (multiples of each trade's risk), for all setups, the ones `track.py` calls OK, and the ones below the Gamma Flip. Before it, a small table compares first touches of the levels near the prior session's volume profile with the other levels, to see whether that confluence makes a level hold more often.
+**held** (moved 0.1% away) or **broke** (moved 0.1% through) within 60 minutes. It ends with a scorecard per level type and a **setup scoreboard**: every failed breakout and 0DTE second touch of every saved session, paper-traded with the strategy's rules (stop entry, stop, target, stop to entry after one risk, cancel after 30 minutes), in R (multiples of each trade's risk), for all setups, the ones `track.py` calls OK, and the ones below the Gamma Flip. Second touches with an RSI divergence get their own row, `2nd touch + RSI divergence`. Before it, a small table compares first touches of the levels near the prior session's volume profile with the other levels, to see whether that confluence makes a level hold more often.
 yfinance keeps 5-minute bars for only about 60 days, so `review.py` saves each finished session (from 18:00 the evening before to the 16:00 close) to `history/bars/ES_<date>.csv` and reads it from there next time. Run it at least once a month and commit `history/` so every logged day stays testable.
 </details>
 
@@ -447,7 +449,7 @@ gex/
 tradingview/        GEX Levels indicator (Pine Script v6)
 ninjatrader/        GexFailedBreakout strategy (NinjaScript), trades the setups on a sim account
 history/            your daily levels log, plus bars/ (5-minute bars of each finished session)
-tests/              132 tests (python -m pytest)
+tests/              140 tests (python -m pytest)
 legacy/             the original 2022-2024 scripts
 ```
 

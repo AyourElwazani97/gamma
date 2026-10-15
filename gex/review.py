@@ -18,7 +18,7 @@ from gex.output import BG, GRAY, GREEN, GRID, RED, TEXT, YELLOW, _level_color, f
 from gex.paper import simulate
 from gex.profile import CONFLUENCE_PCT, confluences, prior_trading_day, volume_profile
 from gex.reactions import THRESHOLD_PCT, TOLERANCE_PCT, WINDOW_BARS, level_reactions, levels_from_row
-from gex.retests import second_touches
+from gex.retests import rsi, second_touches
 
 OPEN, CLOSE = time(9, 30), time(16, 0)
 HOW_TO_READ = """
@@ -26,7 +26,7 @@ How to read it:
   Rng/EM < 1 = quieter day than options priced, > 1 = wilder.
   If negative gamma days keep coming in wilder, respect the regime: smaller size, don't fade.
   Walls that 'held' were good fade spots; 'BROKE' walls were breakout days."""
-FAILED, RETEST = "Failed breakout", "2nd touch of 0DTE wall"
+FAILED, RETEST, RETEST_DIV = "Failed breakout", "2nd touch of 0DTE wall", "2nd touch + RSI divergence"
 SCORE_FILTERS = ("all", "OK: above flip, reward >= risk", "below flip")
 
 
@@ -72,7 +72,10 @@ def grade(row, bars):
     levels = levels_from_row(row)
     tolerance, threshold = o * TOLERANCE_PCT, o * THRESHOLD_PCT
     setups = [(FAILED, s) for s in failed_breakouts(rth, levels, flip, tolerance=tolerance)]
-    setups += [(RETEST, s) for s in second_touches(rth, levels, flip, tolerance=tolerance, threshold=threshold)]
+    session = trading_day(bars, day)  # from the evening before, so RSI is warmed up by the open
+    rsi_series = rsi(session["Close"]) if not session.empty else None
+    retests = second_touches(rth, levels, flip, tolerance=tolerance, threshold=threshold, rsi_series=rsi_series)
+    setups += [(RETEST, s) for s in retests] + [(RETEST_DIV, s) for s in retests if s.divergence]
     profile = volume_profile(trading_day(bars, prior_trading_day(day)))
     near = [] if profile is None else confluences(levels, profile, o * CONFLUENCE_PCT)
     return {
@@ -123,7 +126,7 @@ def confluence_scores(graded):
 def setup_scores(graded):
     """{(setup, filter): (trades, won, lost, net R)} over all sessions' paper trades; unfilled entries don't count."""
     scores = {}
-    for kind in (FAILED, RETEST):
+    for kind in (FAILED, RETEST, RETEST_DIV):
         for name in SCORE_FILTERS:
             taken = [
                 t for g in graded for k, s, t in g.get("trades", [])
@@ -242,10 +245,10 @@ def format_review(product, graded):
     lines += [
         "",
         "Setup scoreboard (paper trades: stop entry, stop, target, stop to entry after 1R; R = each trade's risk):",
-        f"  {'Setup':<23}  {'Filter':<30}  {'Trades':>6}  {'Won':>3}  {'Lost':>4}  {'Net R':>6}",
+        f"  {'Setup':<26}  {'Filter':<30}  {'Trades':>6}  {'Won':>3}  {'Lost':>4}  {'Net R':>6}",
     ]
     for (kind, name), (trades, won, lost, net) in setup_scores(graded).items():
-        lines.append(f"  {kind:<23}  {name:<30}  {trades:>6}  {won:>3}  {lost:>4}  {net:>+6.2f}")
+        lines.append(f"  {kind:<26}  {name:<30}  {trades:>6}  {won:>3}  {lost:>4}  {net:>+6.2f}")
     return "\n".join(lines)
 
 

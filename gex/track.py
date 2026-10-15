@@ -15,7 +15,7 @@ from gex.data import NEW_YORK
 from gex.fakeouts import failed_breakouts
 from gex.output import fmt
 from gex.reactions import THRESHOLD_PCT, TOLERANCE_PCT, level_crosses, level_reactions, levels_from_row
-from gex.retests import SecondTouch, second_touches
+from gex.retests import SecondTouch, rsi, second_touches
 from gex.review import load_history, session_date
 
 CLOSE = dtime(16, 0)
@@ -94,6 +94,9 @@ def setup_events(product, seen, setups):
             head, order, stop = f"FAILED BREAKDOWN below {s.name}", "LONG above", "stop below"
         if retest:
             head = f"2ND TOUCH of {s.name}"
+            if s.divergence is not None:
+                rsi_move = f"(RSI {s.rsi_first:.0f} -> {s.rsi_second:.0f})"
+                head += f" with RSI divergence {rsi_move}" if s.divergence else f" no RSI divergence {rsi_move}"
         risk = abs(s.stop - s.entry)
         reward = None if s.target is None else abs(s.entry - s.target)
         be_at = s.entry - risk if s.direction == "short" else s.entry + risk  # one risk in our favour
@@ -182,6 +185,7 @@ def main(argv=None):
             except Exception as e:  # network / yfinance hiccup: report and retry next round
                 print(f"ERROR {n} price fetch failed: {e}", flush=True)
                 continue
+            rsi_series = rsi(bars["Close"])  # over all fetched bars, so it is warmed up by the open
             bars = bars[(bars.index >= start) & (bars.index.time < CLOSE)]
             if bars.empty:
                 continue
@@ -197,7 +201,9 @@ def main(argv=None):
             lines += cross_lines
             setups = failed_breakouts(done, levels[n], flips[n], tolerance=ref * TOLERANCE_PCT)
             tolerance, threshold = ref * TOLERANCE_PCT, ref * THRESHOLD_PCT
-            setups += second_touches(done, levels[n], flips[n], tolerance=tolerance, threshold=threshold)
+            setups += second_touches(
+                done, levels[n], flips[n], tolerance=tolerance, threshold=threshold, rsi_series=rsi_series
+            )
             setups.sort(key=lambda s: s.time)
             setup_lines, st["setups"] = setup_events(n, st.get("setups", []), setups)
             lines += setup_lines

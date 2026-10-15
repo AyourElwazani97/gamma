@@ -271,3 +271,13 @@ def test_review_compares_levels_near_the_profile_with_the_rest():
     out = format_review("ES", [g])
     assert "Levels near the prior session's volume profile" in out
     assert "near the profile" in out and "other levels" in out
+
+
+def test_divergence_trades_get_their_own_scoreboard_row():
+    from gex.review import FAILED, RETEST, RETEST_DIV, format_review, setup_scores
+
+    graded = [{"trades": [paper(RETEST, -1.0, "stop"), paper(RETEST, 2.0), paper(RETEST_DIV, 2.0)]}]
+    assert setup_scores(graded)[(RETEST_DIV, "all")] == (1, 1, 0, 2.0)
+    g = grade(history_row(asof_ny="2026-09-30 08:00"), bars("2026-09-30", [("09:30", 7700, 7720, 7645, 7690)]))
+    g["trades"] = graded[0]["trades"] + [paper(FAILED, 1.0)]
+    assert "2nd touch + RSI divergence" in format_review("ES", [g])

@@ -154,3 +154,16 @@ def test_second_touch_and_failed_breakout_at_one_level_both_alert():
 def test_second_touch_with_reward_smaller_than_risk_says_skip():
     [line], _ = setup_events("ES", [], [second_touch(target=("Magnet 2", 7730.0))])  # reward 4 vs risk 9.5
     assert "SKIP: reward smaller than risk" in line
+
+
+def test_second_touch_alert_says_if_rsi_diverged():
+    s = second_touch()
+    s.rsi_first, s.rsi_second, s.divergence = 31.2, 38.4, True
+    [line], _ = setup_events("ES", [], [s])
+    assert "with RSI divergence (RSI 31 -> 38)" in line
+    s.divergence = False
+    [line], _ = setup_events("ES", [], [s])
+    assert "no RSI divergence (RSI 31 -> 38)" in line
+    s.rsi_first = s.rsi_second = s.divergence = None
+    [line], _ = setup_events("ES", [], [s])
+    assert "RSI" not in line
