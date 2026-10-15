@@ -4,7 +4,17 @@ import pandas as pd
 
 from gex.fakeouts import FailedBreakout
 from gex.reactions import Cross, Reaction
-from gex.track import closed_bars, cross_events, flip_side, level_events, load_state, save_state, setup_events
+from gex.track import (
+    append_refresh,
+    closed_bars,
+    cross_events,
+    flip_side,
+    level_events,
+    load_state,
+    refresh_events,
+    save_state,
+    setup_events,
+)
 
 
 def r(name, outcome, side="support", touch="09:35", bounce=0.0, through=0.0, price=100.0):
@@ -167,3 +177,47 @@ def test_second_touch_alert_says_if_rsi_diverged():
     s.rsi_first = s.rsi_second = s.divergence = None
     [line], _ = setup_events("ES", [], [s])
     assert "RSI" not in line
+
+
+NOW = pd.Timestamp("2026-10-15 13:00", tz="America/New_York")
+
+
+def test_refreshed_flip_on_the_other_side_of_price_is_alerted():
+    # Morning flip 30800 had NQ below it; the refreshed flip dropped under price
+    lines, st = refresh_events("NQ", {}, {"flip": 30100.0, "total": -2.0}, 30800.0, 30166.0, NOW)
+    assert len(lines) == 1
+    assert "NQ GEX REFRESH: Gamma Flip 30100 (morning 30800)" in lines[0]
+    assert "price 30166 ABOVE" in lines[0] and "POSITIVE gamma" in lines[0]
+    assert st == {"flip": 30100.0, "side": "above"}
+
+
+def test_refresh_is_quiet_while_nothing_changes():
+    st = {"flip": 30100.0, "side": "above"}
+    assert refresh_events("NQ", st, {"flip": 30110.0, "total": -2.0}, 30800.0, 30170.0, NOW) == ([], st)
+
+
+def test_first_refresh_close_to_the_morning_flip_is_quiet():
+    lines, st = refresh_events("ES", {}, {"flip": 7796.0, "total": 3.0}, 7798.25, 7760.0, NOW)
+    assert lines == [] and st == {"flip": 7798.25, "side": "below"}  # 2 points: same picture as the morning
+
+
+def test_flip_that_moves_without_crossing_price_is_alerted_once():
+    st = {"flip": 30800.0, "side": "below"}
+    lines, st = refresh_events("NQ", st, {"flip": 30500.0, "total": -9.0}, 30800.0, 30166.0, NOW)
+    assert len(lines) == 1 and "still BELOW" in lines[0] and "NEGATIVE gamma" in lines[0]
+    assert refresh_events("NQ", st, {"flip": 30495.0, "total": -9.0}, 30800.0, 30166.0, NOW)[0] == []
+
+
+def test_refresh_without_a_flip_is_quiet():
+    st = {"flip": 30800.0, "side": "below"}
+    assert refresh_events("NQ", st, {"flip": None, "total": -9.0}, 30800.0, 30166.0, NOW) == ([], st)
+
+
+def test_refreshes_are_logged_for_review(tmp_path):
+    path = tmp_path / "gex_refresh.csv"
+    append_refresh(path, NOW, "NQ", 30166.0, {"flip": 30100.0, "total": -2.0})
+    append_refresh(path, NOW, "ES", 7760.0, {"flip": None, "total": 3.0})
+    lines = path.read_text().splitlines()
+    assert lines[0] == "time_ny,product,fut_last,flip,total_gex_bn"
+    assert lines[1] == "2026-10-15 13:00,NQ,30166,30100,-2.0"
+    assert lines[2] == "2026-10-15 13:00,ES,7760,,3.0"

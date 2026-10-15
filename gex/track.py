@@ -1,7 +1,9 @@
 """Live session tracker: prints one line each time price touches, holds or breaks a level,
-each time a 5-minute bar closes back through one, when a wall gives a failed-breakout trade, and when a
-0DTE wall holds a second touch (a test setup)."""
+each time a 5-minute bar closes back through one, when a wall gives a failed-breakout trade, when a
+0DTE wall holds a second touch (a test setup), and when GEX re-computed from a fresh chain moves the
+Gamma Flip (logged to history/gex_refresh.csv; levels and setups keep the morning run)."""
 import argparse
+import csv
 import json
 import sys
 import time
@@ -10,16 +12,26 @@ from pathlib import Path
 
 import pandas as pd
 
+from gex.cli import live_spot
 from gex.config import PRODUCTS
-from gex.data import NEW_YORK
+from gex.data import NEW_YORK, load_chain
 from gex.fakeouts import failed_breakouts
-from gex.output import fmt
+from gex.futures import fetch_futures
+from gex.levels import analyze
+from gex.output import fmt, to_futures
 from gex.reactions import THRESHOLD_PCT, TOLERANCE_PCT, level_crosses, level_reactions, levels_from_row
 from gex.retests import SecondTouch, rsi, second_touches
 from gex.review import load_history, session_date
 
 CLOSE = dtime(16, 0)
 HEARTBEAT_MIN = 30
+REFRESH_MIN = 15  # re-compute GEX this often (CBOE's chain runs 15 minutes late anyway)
+FLIP_MOVE_PCT = 0.001  # a refreshed Gamma Flip that moved 0.1% (~8 ES, ~30 NQ points) is news
+REGIME = {
+    "above": "POSITIVE gamma (calmer, fade edges)",
+    "below": "NEGATIVE gamma (faster, don't fade)",
+}
+REFRESH_FIELDS = ["time_ny", "product", "fut_last", "flip", "total_gex_bn"]
 
 
 def flip_side(price, flip):
@@ -124,6 +136,58 @@ def setup_events(product, seen, setups):
     return lines, seen
 
 
+def refresh_events(product, prev, fresh, morning_flip, last, now):
+    """Lines when GEX re-computed from a fresh chain changes the picture: price is now on the other side
+    of the Gamma Flip, or the flip moved FLIP_MOVE_PCT since it was last reported. `prev` = {"flip",
+    "side"} last reported ({} before the first refresh, which is compared with the morning flip).
+    Returns (lines, new prev)."""
+    flip = fresh["flip"]
+    if flip is None:
+        return [], prev
+    if not prev:
+        prev = {"flip": morning_flip, "side": flip_side(last, morning_flip)}
+    side = flip_side(last, flip)
+    moved = prev["flip"] is None or abs(flip - prev["flip"]) >= last * FLIP_MOVE_PCT
+    if side == prev["side"] and not moved:
+        return [], prev
+    where = side.upper() if side != prev["side"] else f"still {side.upper()}"
+    morning = "none" if morning_flip is None else fmt(morning_flip)
+    line = (
+        f"{now:%H:%M} {product} GEX REFRESH: Gamma Flip {fmt(flip)} (morning {morning}), price {fmt(last)} {where}"
+        f" -> {REGIME[side]}; setups still use the morning flip"
+    )
+    return [line], {"flip": flip, "side": side}
+
+
+def fresh_gex(product):
+    """{"flip": Gamma Flip in futures points (None without one or without a basis), "total": GEX $bn}
+    from fresh CBOE chains, priced the way gex.py prices them."""
+    index_chain = load_chain(product.index_ticker)
+    try:
+        etf_chain = load_chain(product.etf_ticker)
+    except Exception:  # the index chain alone still gives a flip
+        etf_chain = None
+    basis, live = fetch_futures(product)
+    basis = None if basis is None else basis[0]
+    spot, _ = live_spot(product, index_chain, basis, live)
+    lv = analyze(product, index_chain, etf_chain, spot=spot).levels
+    flip = None if lv.flip is None or basis is None else to_futures(lv.flip, basis)
+    return {"flip": flip, "total": lv.total_gex_bn}
+
+
+def append_refresh(path, now, product, last, fresh):
+    """One row per refresh, to check later whether the refreshed flip beats the morning one."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    is_new = not path.exists()
+    with open(path, "a", newline="") as f:
+        writer = csv.writer(f)
+        if is_new:
+            writer.writerow(REFRESH_FIELDS)
+        flip = "" if fresh["flip"] is None else fmt(fresh["flip"])
+        writer.writerow([f"{now:%Y-%m-%d %H:%M}", product, fmt(last), flip, round(fresh["total"], 3)])
+
+
 def load_state(path):
     path = Path(path)
     return json.loads(path.read_text()) if path.exists() else {}
@@ -158,6 +222,7 @@ def main(argv=None):
     parser.add_argument("--interval", type=int, default=120, help="seconds between checks")
     parser.add_argument("--history", default="history/levels_history.csv")
     parser.add_argument("--state", help="state file (default output/track_<date>.json)")
+    parser.add_argument("--refresh", type=int, default=REFRESH_MIN, help="minutes between GEX refreshes (0 = off)")
     args = parser.parse_args(argv)
 
     day = pd.Timestamp.now(tz=NEW_YORK).date()
@@ -173,11 +238,15 @@ def main(argv=None):
     start = pd.Timestamp(f"{day} {args.start}", tz=NEW_YORK)
     levels = {n: levels_from_row(rows[n]) for n in names}
     flips = {n: float(rows[n]["flip"]) if rows[n]["flip"] else None for n in names}
+    refresh_path = Path(args.history).parent / "gex_refresh.csv"
     print(f"TRACKING {', '.join(names)} from {args.start} ET, checking every {args.interval}s", flush=True)
-    last_beat = None
+    last_beat = last_refresh = None
 
     while True:
         now = pd.Timestamp.now(tz=NEW_YORK)
+        refresh = args.refresh > 0 and now >= start and (
+            last_refresh is None or (now - last_refresh).total_seconds() >= args.refresh * 60
+        )
         lasts = {}
         for n in names:
             try:
@@ -209,12 +278,22 @@ def main(argv=None):
             lines += setup_lines
             side = flip_side(last, flips[n])
             if side and st["flip"] and side != st["flip"]:
-                regime = "POSITIVE gamma (calmer, fade edges)" if side == "above" else "NEGATIVE gamma (faster, don't fade)"
-                lines.append(f"{now:%H:%M} {n} crossed {side} Gamma Flip {fmt(flips[n])} (last {fmt(last)}) -> {regime}")
+                lines.append(f"{now:%H:%M} {n} crossed {side} Gamma Flip {fmt(flips[n])} (last {fmt(last)}) -> {REGIME[side]}")
             st["flip"] = side or st["flip"]
+            if refresh:
+                try:
+                    fresh = fresh_gex(PRODUCTS[n])
+                except Exception as e:  # CBOE / yfinance hiccup: the morning levels still stand
+                    print(f"ERROR {n} GEX refresh failed: {e}", flush=True)
+                else:
+                    append_refresh(refresh_path, now, n, last, fresh)
+                    refresh_lines, st["refresh"] = refresh_events(n, st.get("refresh", {}), fresh, flips[n], last, now)
+                    lines += refresh_lines
             for line in lines:
                 print(line, flush=True)
         save_state(state_path, state)
+        if refresh:
+            last_refresh = now
 
         if lasts and (last_beat is None or (now - last_beat).total_seconds() >= HEARTBEAT_MIN * 60):
             parts = [

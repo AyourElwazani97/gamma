@@ -36,7 +36,7 @@
 | **A plan, not just numbers** | Every report starts with the **regime**: is today likely calm or wild? Then it gives the rules that usually work in that regime. |
 | **TradingView in one paste** | Install the included indicator once. Every morning, paste one line and all levels draw themselves, and failed-breakout trades show up with entry, stop and target, managed bar by bar with phone alerts. |
 | **NinjaTrader on autopilot (sim)** | A NinjaTrader 8 strategy reads the levels by itself and trades the failed breakouts on a simulation account: bracket orders, breakeven stop, 2-loss daily limit. It refuses to place orders on real accounts. |
-| **Live alerts** | `track.py` prints a line when price touches a level, when the level holds or breaks, each time a 5-minute bar closes back through it, when price crosses the Gamma Flip, and when a wall gives a failed-breakout trade (entry, stop, target). |
+| **Live alerts** | `track.py` prints a line when price touches a level, when the level holds or breaks, each time a 5-minute bar closes back through it, when price crosses the Gamma Flip, when a wall gives a failed-breakout trade (entry, stop, target), and when a fresh GEX calculation moves the flip. |
 | **Proof, not hope** | `review.py` checks your saved levels against what really happened, so you learn which levels work for you. |
 
 <p align="center">
@@ -312,6 +312,12 @@ ES 0DTE Put Wall 7684.75 HELD: bounced 17.25 pts (last 7701.25)
 10:50 NQ closed back BELOW Expected Move Low 30719.25 at 30696.5 (cross #2 today, last 30683.25)
 10:30 ES closed back BELOW Magnet 3 7849.5 at 7846.5 (cross #2 today, last 7841.25)
 10:40 ES closed back ABOVE Magnet 3 7849.5 at 7852 (cross #3 today, last 7841.25)
+```
+
+**GEX refresh.** Every 15 minutes (`--refresh MIN`, 0 = off) the tracker re-computes GEX from a fresh CBOE chain, because the Gamma Flip moves during the day as options decay and implied volatility changes (on Oct 15, 2026 the NQ flip moved from 30800 in the morning to about 30500 by the afternoon). It prints a line when the refreshed flip moves 0.1% or price ends up on the other side of it, and logs every refresh to `history/gex_refresh.csv`. The levels, the setups and their OK/SKIP verdicts keep the morning run, the same levels the NinjaTrader strategy and `review.py` use, until the log shows whether the refreshed flip calls the regime better.
+
+```text
+16:07 NQ GEX REFRESH: Gamma Flip 30655 (morning 30800.25), price 30162.25 still BELOW -> NEGATIVE gamma (faster, don't fade); setups still use the morning flip
 ```
 
 A high cross count at a magnet means price is pinned there: chop, not a trend.
