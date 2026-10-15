@@ -1,5 +1,6 @@
 """Live session tracker: prints one line each time price touches, holds or breaks a level,
-each time a 5-minute bar closes back through one, and when a wall gives a failed-breakout trade."""
+each time a 5-minute bar closes back through one, when a wall gives a failed-breakout trade, and when a
+0DTE wall holds a second touch (a test setup)."""
 import argparse
 import json
 import sys
@@ -14,6 +15,7 @@ from gex.data import NEW_YORK
 from gex.fakeouts import failed_breakouts
 from gex.output import fmt
 from gex.reactions import THRESHOLD_PCT, TOLERANCE_PCT, level_crosses, level_reactions, levels_from_row
+from gex.retests import SecondTouch, second_touches
 from gex.review import load_history, session_date
 
 CLOSE = dtime(16, 0)
@@ -77,10 +79,12 @@ def cross_events(product, counts, crosses, reactions, last):
 
 
 def setup_events(product, seen, setups):
-    """Lines for failed breakouts not alerted yet (`seen` = keys already alerted). Returns (lines, new seen)."""
+    """Lines for failed breakouts and 0DTE second touches not alerted yet (`seen` = keys already alerted).
+    Returns (lines, new seen)."""
     lines, seen = [], list(seen)
     for s in setups:
-        key = f"{s.name}|{s.direction}"
+        retest = isinstance(s, SecondTouch)
+        key = f"{'2nd|' if retest else ''}{s.name}|{s.direction}"
         if key in seen:
             continue
         seen.append(key)
@@ -88,6 +92,8 @@ def setup_events(product, seen, setups):
             head, order, stop = f"FAILED BREAKOUT above {s.name}", "SHORT below", "stop above"
         else:
             head, order, stop = f"FAILED BREAKDOWN below {s.name}", "LONG above", "stop below"
+        if retest:
+            head = f"2ND TOUCH of {s.name}"
         risk = abs(s.stop - s.entry)
         reward = None if s.target is None else abs(s.entry - s.target)
         be_at = s.entry - risk if s.direction == "short" else s.entry + risk  # one risk in our favour
@@ -95,7 +101,12 @@ def setup_events(product, seen, setups):
             plan = f"no level beyond, trail the stop (risk {fmt(risk)})"
         else:
             plan = f"target {s.target_name} {fmt(s.target)} (risk {fmt(risk)}, reward {fmt(reward)})"
-        if s.positive_gamma is False:
+        if retest:  # still being tested in every regime: review.py's scoreboard decides if it earns an OK
+            regime = {True: "above", False: "below", None: "no"}[s.positive_gamma] + " Gamma Flip"
+            verdict = "SKIP: reward smaller than risk" if reward is not None and reward < risk else (
+                f"TEST setup, not proven: paper-trade only ({regime})"
+            )
+        elif s.positive_gamma is False:
             verdict = "SKIP: below Gamma Flip, walls break more often"
         elif reward is not None and reward < risk:
             verdict = "SKIP: reward smaller than risk"
@@ -185,6 +196,9 @@ def main(argv=None):
             cross_lines, st["crosses"] = cross_events(n, st.get("crosses", {}), crosses, reactions, last)
             lines += cross_lines
             setups = failed_breakouts(done, levels[n], flips[n], tolerance=ref * TOLERANCE_PCT)
+            tolerance, threshold = ref * TOLERANCE_PCT, ref * THRESHOLD_PCT
+            setups += second_touches(done, levels[n], flips[n], tolerance=tolerance, threshold=threshold)
+            setups.sort(key=lambda s: s.time)
             setup_lines, st["setups"] = setup_events(n, st.get("setups", []), setups)
             lines += setup_lines
             side = flip_side(last, flips[n])

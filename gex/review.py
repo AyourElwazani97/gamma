@@ -13,8 +13,11 @@ from matplotlib.figure import Figure
 from gex.bars import archived_bars
 from gex.config import PRODUCTS
 from gex.data import NEW_YORK
+from gex.fakeouts import failed_breakouts
 from gex.output import BG, GRAY, GREEN, GRID, RED, TEXT, YELLOW, _level_color, fmt
+from gex.paper import simulate
 from gex.reactions import THRESHOLD_PCT, TOLERANCE_PCT, WINDOW_BARS, level_reactions, levels_from_row
+from gex.retests import second_touches
 
 OPEN, CLOSE = time(9, 30), time(16, 0)
 HOW_TO_READ = """
@@ -22,6 +25,8 @@ How to read it:
   Rng/EM < 1 = quieter day than options priced, > 1 = wilder.
   If negative gamma days keep coming in wilder, respect the regime: smaller size, don't fade.
   Walls that 'held' were good fade spots; 'BROKE' walls were breakout days."""
+FAILED, RETEST = "Failed breakout", "2nd touch of 0DTE wall"
+SCORE_FILTERS = ("all", "OK: above flip, reward >= risk", "below flip")
 
 
 def session_date(asof):
@@ -63,6 +68,10 @@ def grade(row, bars):
     has_em = em_low is not None and em_high is not None and em_high > em_low
     hit_call = None if call_wall is None else h >= call_wall
     hit_put = None if put_wall is None else l <= put_wall
+    levels = levels_from_row(row)
+    tolerance, threshold = o * TOLERANCE_PCT, o * THRESHOLD_PCT
+    setups = [(FAILED, s) for s in failed_breakouts(rth, levels, flip, tolerance=tolerance)]
+    setups += [(RETEST, s) for s in second_touches(rth, levels, flip, tolerance=tolerance, threshold=threshold)]
     return {
         "date": day,
         "product": row["product"],
@@ -79,11 +88,33 @@ def grade(row, bars):
         "put_wall_held": c > put_wall if hit_put else None,  # touched but closed back above
         "closed_above_flip": None if flip is None else c > flip,
         "em_width": em_high - em_low if has_em else None,
-        "reactions": level_reactions(
-            rth, levels_from_row(row), threshold=o * THRESHOLD_PCT, tolerance=o * TOLERANCE_PCT
-        ),
+        "reactions": level_reactions(rth, levels, threshold=threshold, tolerance=tolerance),
+        "trades": [(kind, s, simulate(s, rth)) for kind, s in sorted(setups, key=lambda ks: ks[1].time)],
         "bars": rth,
     }
+
+
+def _passes(setup, name):
+    if name == "below flip":
+        return setup.positive_gamma is False
+    if name == "all":
+        return True
+    reward_ok = setup.target is None or abs(setup.entry - setup.target) >= abs(setup.stop - setup.entry)
+    return setup.positive_gamma is not False and reward_ok  # the rule track.py and the strategy call OK
+
+
+def setup_scores(graded):
+    """{(setup, filter): (trades, won, lost, net R)} over all sessions' paper trades; unfilled entries don't count."""
+    scores = {}
+    for kind in (FAILED, RETEST):
+        for name in SCORE_FILTERS:
+            taken = [
+                t for g in graded for k, s, t in g.get("trades", [])
+                if k == kind and t.outcome != "cancelled" and _passes(s, name)
+            ]  # fmt: skip
+            won, lost = sum(t.r > 0 for t in taken), sum(t.r < 0 for t in taken)
+            scores[(kind, name)] = (len(taken), won, lost, sum(t.r for t in taken))
+    return scores
 
 
 def scorecard(graded):
@@ -180,6 +211,13 @@ def format_review(product, graded):
             f"  {level:<20}  {counts['held']:>4}  {counts['broke']:>5}  {counts['stalled']:>7}  "
             f"{counts['not reached']:>11}"
         )
+    lines += [
+        "",
+        "Setup scoreboard (paper trades: stop entry, stop, target, stop to entry after 1R; R = each trade's risk):",
+        f"  {'Setup':<23}  {'Filter':<30}  {'Trades':>6}  {'Won':>3}  {'Lost':>4}  {'Net R':>6}",
+    ]
+    for (kind, name), (trades, won, lost, net) in setup_scores(graded).items():
+        lines.append(f"  {kind:<23}  {name:<30}  {trades:>6}  {won:>3}  {lost:>4}  {net:>+6.2f}")
     return "\n".join(lines)
 
 

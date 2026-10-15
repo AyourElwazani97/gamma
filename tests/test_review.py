@@ -194,3 +194,55 @@ def test_review_keeps_working_from_saved_bars_after_yahoo_drops_them(tmp_path, m
     monkeypatch.setattr(review, "fetch_bars", gone)
     assert review.main(["ES", "--history", str(history)], today=date(2026, 12, 31)) == 0  # > 60 days later
     assert "ES review: 1 session(s)" in capsys.readouterr().out
+
+
+def paper(kind, r, outcome="target", positive_gamma=True, reward=8.0):
+    from gex.fakeouts import FailedBreakout
+    from gex.paper import PaperTrade
+
+    t = ts("2026-10-15 10:00")
+    setup = FailedBreakout("Call Wall", 100, "short", t, t, 100, 104, "Magnet 1", 100 - reward, positive_gamma)
+    return kind, setup, PaperTrade(outcome, r)
+
+
+def test_setup_scores_by_filter():
+    from gex.review import FAILED, RETEST, setup_scores
+
+    graded = [{"trades": [
+        paper(FAILED, 2.0),
+        paper(FAILED, -1.0, "stop", positive_gamma=False),
+        paper(FAILED, 0.0, "cancelled"),  # never filled: not a trade
+        paper(RETEST, -1.0, "stop", reward=2.0),  # reward 2 < risk 4
+    ]}]  # fmt: skip
+    scores = setup_scores(graded)
+    assert scores[(FAILED, "all")] == (2, 1, 1, 1.0)
+    assert scores[(FAILED, "OK: above flip, reward >= risk")] == (1, 1, 0, 2.0)
+    assert scores[(FAILED, "below flip")] == (1, 0, 1, -1.0)
+    assert scores[(RETEST, "all")] == (1, 0, 1, -1.0)
+    assert scores[(RETEST, "OK: above flip, reward >= risk")] == (0, 0, 0, 0.0)
+
+
+def test_grade_paper_trades_a_failed_breakout():
+    from gex.review import FAILED
+
+    b = bars("2026-09-30", [
+        ("09:30", 7790, 7795, 7788, 7794),
+        ("09:35", 7794, 7806, 7792, 7797),  # pushes 6 over the 7800 call wall, closes back under
+        ("09:40", 7797, 7798, 7785, 7786),  # breaks the signal low 7792: short filled
+        ("09:45", 7786, 7787, 7759, 7760),  # reaches the 7760 target
+    ])  # fmt: skip
+    g = grade(history_row(asof_ny="2026-09-30 08:00", flip="7700", em_low="7760"), b)
+    [(kind, setup, trade)] = [t for t in g["trades"] if t[0] == FAILED]
+    assert (setup.name, setup.direction, setup.entry, setup.stop) == ("Call Wall", "short", 7792, 7806)
+    assert trade.outcome == "target" and trade.r == pytest.approx(32 / 14)
+
+
+def test_review_prints_the_setup_scoreboard():
+    from gex.review import FAILED, format_review
+
+    g = grade(history_row(asof_ny="2026-09-30 08:00"), bars("2026-09-30", [("09:30", 7700, 7720, 7645, 7690)]))
+    g["trades"] = [paper(FAILED, 2.0)]
+    out = format_review("ES", [g])
+    assert "Setup scoreboard" in out
+    assert "Failed breakout" in out and "2nd touch of 0DTE wall" in out
+    assert "+2.00" in out

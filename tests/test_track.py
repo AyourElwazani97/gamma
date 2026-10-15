@@ -126,3 +126,31 @@ def test_closed_bars_drop_the_forming_bar_even_with_a_delayed_feed():
     index = pd.date_range("2026-10-13 11:15", periods=3, freq="5min", tz="America/New_York")
     bars = pd.DataFrame({"Close": [7845.5, 7842.5, 7841.25]}, index=index)
     assert list(closed_bars(bars)["Close"]) == [7845.5, 7842.5]
+
+
+def second_touch(positive_gamma=False, target=("Magnet 2", 7749.0)):
+    from gex.retests import SecondTouch
+
+    t = pd.Timestamp("2026-10-15 10:40", tz="America/New_York")
+    return SecondTouch("Magnet 3 + 0DTE Put Wall", 7719, "long", t, t, 7726, 7716.5, target[0], target[1], positive_gamma)
+
+
+def test_second_touch_alert_is_a_test_setup_in_any_regime():
+    [line], seen = setup_events("ES", [], [second_touch()])
+    assert "10:40 ES 2ND TOUCH of Magnet 3 + 0DTE Put Wall 7719" in line
+    assert "LONG above 7726" in line and "stop below 7716.5" in line
+    assert "TEST setup, not proven: paper-trade only (below Gamma Flip)" in line
+    again, _ = setup_events("ES", seen, [second_touch()])
+    assert again == []
+
+
+def test_second_touch_and_failed_breakout_at_one_level_both_alert():
+    breakdown = fb("long")
+    breakdown.name = "Magnet 3 + 0DTE Put Wall"
+    lines, _ = setup_events("ES", [], [breakdown, second_touch()])
+    assert len(lines) == 2
+
+
+def test_second_touch_with_reward_smaller_than_risk_says_skip():
+    [line], _ = setup_events("ES", [], [second_touch(target=("Magnet 2", 7730.0))])  # reward 4 vs risk 9.5
+    assert "SKIP: reward smaller than risk" in line
