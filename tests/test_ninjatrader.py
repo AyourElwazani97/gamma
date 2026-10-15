@@ -105,4 +105,10 @@ def test_footprint_math(ntcheck, tmp_path):
         "abs none",  # bar too small
         "abs none",  # not heavy enough
         "rowsize 1 2 4 8 20 2000",
+        "two low 97-100 500",  # sold hard, then no follow-through: absorbed over two bars
+        "two none",  # went too far below the first low
+        "two none",  # selling not heavy enough
+        "two none",  # second bar kept selling
+        "two none",  # first bar closed in its upper half
+        "two high 120-123 500",
     ]

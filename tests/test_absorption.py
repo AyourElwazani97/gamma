@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 
 from gex.absorption import COLUMNS, absorptions, load_absorptions
-from gex.review import ABSORB, format_review, grade
+from gex.review import ABSORB, ABSORB2, format_review, grade
 
 NY = "America/New_York"
 ROOT = Path(__file__).resolve().parent.parent
@@ -18,8 +18,8 @@ def ts(text):
 
 
 def logged(**overrides):
-    row = {"product": "ES", "time_ny": "2026-09-30 10:00", "minutes": "5", "direction": "long", "level": "Put Wall",
-           "level_price": "7650", "low": "7649", "high": "7656", "close": "7655", "extreme_volume": "1200",
+    row = {"product": "ES", "time_ny": "2026-09-30 10:00", "minutes": "5", "bars": "1", "direction": "long",
+           "level": "Put Wall", "level_price": "7650", "low": "7649", "high": "7656", "close": "7655", "effort": "1200",
            "bar_volume": "9000", "bar_delta": "-800"}  # fmt: skip
     row.update(overrides)
     return row
@@ -30,7 +30,7 @@ def test_absorption_at_the_low_is_a_long_on_the_break_of_the_bar_high():
     assert (s.name, s.direction, s.entry, s.stop) == ("Put Wall", "long", 7656, 7649)
     assert (s.target_name, s.target) == ("Gamma Flip", 7740.0)
     assert s.time == ts("2026-09-30 10:00")  # the paper trade starts with the 10:05 bar
-    assert s.positive_gamma is False and s.volume == 1200
+    assert s.positive_gamma is False and s.effort == 1200 and s.bars == 1
 
 
 def test_absorption_at_the_high_is_a_short_on_the_break_of_the_bar_low():
@@ -40,16 +40,21 @@ def test_absorption_at_the_high_is_a_short_on_the_break_of_the_bar_low():
     assert s.positive_gamma is True
 
 
-def test_one_absorption_per_five_minute_bar_level_and_direction():
+def test_one_absorption_per_five_minute_bar_pattern_level_and_direction():
     rows = [
         logged(),
+        logged(bars="2", low="7647"),  # the two-bar pattern on the same bar is its own setup
         logged(time_ny="2026-09-30 10:02", minutes="1", low="7649.5", high="7653"),  # 1-minute chart, same 5 minutes
         logged(time_ny="2026-09-30 10:05", minutes="1", low="7650", high="7652"),  # ends 10:06: the next 5 minutes
         logged(product="NQ"),
         logged(time_ny="2026-10-01 10:00"),
     ]
     setups = absorptions(rows, "ES", date(2026, 9, 30), LEVELS, flip=None)
-    assert [(s.time, s.entry) for s in setups] == [(ts("2026-09-30 10:00"), 7653), (ts("2026-09-30 10:05"), 7652)]
+    assert [(s.time, s.bars, s.entry, s.stop) for s in setups] == [
+        (ts("2026-09-30 10:00"), 1, 7653, 7649.5),
+        (ts("2026-09-30 10:00"), 2, 7656, 7647),
+        (ts("2026-09-30 10:05"), 1, 7652, 7650),
+    ]
     assert setups[0].positive_gamma is None
 
 
@@ -77,8 +82,11 @@ def test_grade_paper_trades_logged_absorptions():
          (7657, 7745, 7656, 7744)],  # reaches the 7660 target (Expected Move Low, the next level up)
         index=index, columns=["Open", "High", "Low", "Close"],
     )  # fmt: skip
-    g = grade(history_row(), bars, [logged()])
+    g = grade(history_row(), bars, [logged(), logged(bars="2", low="7647")])
     [(kind, setup, trade)] = [t for t in g["trades"] if t[0] == ABSORB]
     assert (setup.entry, setup.stop, setup.target) == (7656, 7649, 7660.0)
     assert trade.outcome == "target" and trade.r == pytest.approx(4 / 7)
-    assert ABSORB in format_review("ES", [g])
+    [(kind, setup, trade)] = [t for t in g["trades"] if t[0] == ABSORB2]
+    assert trade.outcome == "target" and trade.r == pytest.approx(4 / 9)
+    out = format_review("ES", [g])
+    assert ABSORB in out and ABSORB2 in out

@@ -45,6 +45,22 @@ static class FootprintCheck
         Console.WriteLine(Abs(Even(100, 110, 100, 101, 0, 60), 106, 3));  // not heavy enough for a 3x multiple
 
         Console.WriteLine("rowsize " + string.Join(" ", new[] { 20, 7, 3, 2, 1, 0.001 }.Select(px => FootprintMath.TicksPerRow(px, 12))));
+
+        // Two bars, shaped like ES on Oct 15, 2026 at the 7719 0DTE Put Wall: a bar sells hard (delta -500 against an
+        // average of 200) and closes near its low, the next dips 3 ticks lower, turns to buying and closes near its high
+        FootprintBar sold = Even(100, 120, 100, 104, 0, 100);
+        Console.WriteLine(Two(sold, 101, Even(97, 108, 105, 108, 50, 0), 107, 200));
+        Console.WriteLine(Two(sold, 101, Even(94, 108, 105, 108, 50, 0), 107, 200));  // 6 ticks lower: more than a quarter of 20
+        Console.WriteLine(Two(sold, 101, Even(97, 108, 105, 108, 50, 0), 107, 400));  // -500 is not 1.5x an average of 400
+        Console.WriteLine(Two(sold, 101, Even(97, 108, 97, 100, 0, 50), 107, 200));  // the second bar kept selling
+        Console.WriteLine(Two(sold, 115, Even(97, 108, 105, 108, 50, 0), 107, 200));  // the first bar closed in its upper half
+        Console.WriteLine(Two(Even(100, 120, 116, 120, 100, 0), 119, Even(112, 123, 112, 115, 0, 50), 113, 200));  // the mirror at the high
+    }
+
+    static string Two(FootprintBar first, long firstClose, FootprintBar second, long secondClose, double averageDelta)
+    {
+        FootprintAbsorption a = first.TwoBar(firstClose, second, secondClose, averageDelta, 1.5);
+        return a == null ? "two none" : "two " + (a.AtLow ? "low " : "high ") + a.FromTick + "-" + a.ToTick + " " + a.Effort;
     }
 
     static FootprintBar Make(Dictionary<long, double[]> cells)
@@ -84,6 +100,6 @@ static class FootprintCheck
     static string Abs(FootprintBar bar, long closeTick, double multiple)
     {
         FootprintAbsorption a = bar.Absorption(closeTick, 2, multiple);
-        return a == null ? "abs none" : "abs " + (a.AtLow ? "low " : "high ") + a.FromTick + "-" + a.ToTick + " " + a.Volume;
+        return a == null ? "abs none" : "abs " + (a.AtLow ? "low " : "high ") + a.FromTick + "-" + a.ToTick + " " + a.Effort;
     }
 }

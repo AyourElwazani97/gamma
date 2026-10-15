@@ -1,6 +1,7 @@
 // GEX footprint for NinjaTrader 8: inside every candle, how many contracts sellers hit at the bid (left number) and buyers
 // lifted at the ask (right number) at each price, the bar's delta and volume, and absorption marks: heavy selling into the
-// low that could not push price lower (buyers defending), or heavy buying into the high that could not lift it.
+// low that could not push price lower (buyers defending), or heavy buying into the high that could not lift it, inside
+// one bar or over two (a bar sells hard, the next can't follow through and turns to buying).
 // Absorption at a GEX level from history/levels_history.csv is alerted and logged to history/absorption.csv for review.py.
 //
 // Needs GexFailedBreakout.cs installed too (it reads the levels the same way).
@@ -46,9 +47,10 @@ namespace NinjaTrader.NinjaScript.Indicators
     public class FootprintAbsorption
     {
         public bool AtLow;  // sellers absorbed at the low (buyers defending); false = buyers absorbed at the high
+        public int Bars = 1;  // 1 = inside one bar, 2 = the selling in one bar, the failure to follow through in the next
         public long FromTick;  // the extreme prices, in ticks
         public long ToTick;
-        public double Volume;  // aggressive volume into the extreme
+        public double Effort;  // 1 bar: volume sold into the low / bought into the high; 2 bars: size of the first bar's delta
         public string LevelName = "";  // GEX level it happened at, "" = none
         public double Level = double.NaN;
     }
@@ -130,10 +132,31 @@ namespace NinjaTrader.NinjaScript.Indicators
             double buys, sells;
             Sum(low, low + extremeTicks - 1, out buys, out sells);
             if (sells > buys && sells >= heavy && 2 * (closeTick - low) > range)
-                return new FootprintAbsorption { AtLow = true, FromTick = low, ToTick = low + extremeTicks - 1, Volume = sells };
+                return new FootprintAbsorption { AtLow = true, FromTick = low, ToTick = low + extremeTicks - 1, Effort = sells };
             Sum(high - extremeTicks + 1, high, out buys, out sells);
             if (buys > sells && buys >= heavy && 2 * (high - closeTick) > range)
-                return new FootprintAbsorption { AtLow = false, FromTick = high - extremeTicks + 1, ToTick = high, Volume = buys };
+                return new FootprintAbsorption { AtLow = false, FromTick = high - extremeTicks + 1, ToTick = high, Effort = buys };
+            return null;
+        }
+
+        /// <summary>Absorption over two finished bars (this one first). At the low: this bar sold hard (its delta at least
+        /// `deltaMultiple` times the average size of the delta of the bars before it) and closed in its lower half; the next
+        /// went no more than a quarter of this bar's range below its low, its delta turned positive and it closed in its
+        /// upper half, above this close: a big effort by the sellers, no result. At the high: the mirror image.
+        /// Null when neither.</summary>
+        public FootprintAbsorption TwoBar(long closeTick, FootprintBar next, long nextCloseTick, double averageDelta, double deltaMultiple)
+        {
+            if (Cells.Count == 0 || next.Cells.Count == 0 || averageDelta <= 0)
+                return null;
+            long low = LowTick, high = HighTick, range = high - low;
+            long nextLow = next.LowTick, nextHigh = next.HighTick, nextRange = nextHigh - nextLow;
+            double effort = deltaMultiple * averageDelta;
+            if (-Delta >= effort && 2 * (closeTick - low) < range && 4 * (low - nextLow) <= range
+                && next.Delta > 0 && 2 * (nextCloseTick - nextLow) > nextRange && nextCloseTick > closeTick)
+                return new FootprintAbsorption { AtLow = true, Bars = 2, FromTick = Math.Min(low, nextLow), ToTick = low, Effort = -Delta };
+            if (Delta >= effort && 2 * (high - closeTick) < range && 4 * (nextHigh - high) <= range
+                && next.Delta < 0 && 2 * (nextHigh - nextCloseTick) > nextRange && nextCloseTick < closeTick)
+                return new FootprintAbsorption { AtLow = false, Bars = 2, FromTick = high, ToTick = Math.Max(high, nextHigh), Effort = Delta };
             return null;
         }
 
@@ -204,7 +227,7 @@ namespace NinjaTrader.NinjaScript.Indicators
     public class GexFootprint : Indicator
     {
         private const float MinRowPixels = 12;
-        private const string LogHeader = "product,time_ny,minutes,direction,level,level_price,low,high,close,extreme_volume,bar_volume,bar_delta";
+        private const string LogHeader = "product,time_ny,minutes,bars,direction,level,level_price,low,high,close,effort,bar_volume,bar_delta";
         private static readonly CultureInfo CI = CultureInfo.InvariantCulture;
         private static readonly TimeSpan Open930 = new TimeSpan(9, 30, 0);
         private static readonly TimeSpan Close1600 = new TimeSpan(16, 0, 0);
@@ -220,7 +243,7 @@ namespace NinjaTrader.NinjaScript.Indicators
 
         private readonly object sync = new object();  // OnRender runs on the UI thread, the trades on the data thread
         private Dictionary<int, FootprintBar> bars;
-        private Dictionary<int, FootprintAbsorption> marks;
+        private Dictionary<int, List<FootprintAbsorption>> marks;  // by the bar that completed them
         private List<Trade> pending;  // trades newer than the last bar, waiting for it
         private double lastPrice = double.NaN;
         private bool lastBuy = true;
@@ -250,6 +273,7 @@ namespace NinjaTrader.NinjaScript.Indicators
                 ImbalanceRatio = 3;
                 ExtremeTicks = 2;
                 AbsorbMultiple = 1.5;
+                DeltaMultiple = 1.5;
                 LevelsFile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "gamma", "history", "levels_history.csv");
                 LogAbsorption = true;
                 BuyBrush = Brushes.SeaGreen;
@@ -263,7 +287,7 @@ namespace NinjaTrader.NinjaScript.Indicators
             else if (State == State.DataLoaded)
             {
                 bars = new Dictionary<int, FootprintBar>();
-                marks = new Dictionary<int, FootprintAbsorption>();
+                marks = new Dictionary<int, List<FootprintAbsorption>>();
                 pending = new List<Trade>();
                 newYork = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
                 product = Instrument.MasterInstrument.Name;
@@ -278,8 +302,8 @@ namespace NinjaTrader.NinjaScript.Indicators
                         foreach (string line in File.ReadAllLines(logPath).Skip(1))
                         {
                             string[] c = line.Split(',');
-                            if (c.Length > 3)
-                                logged.Add(c[0] + "|" + c[1] + "|" + c[2] + "|" + c[3]);
+                            if (c.Length > 4)
+                                logged.Add(LogKey(c));
                         }
                 }
                 catch (Exception e)
@@ -346,22 +370,54 @@ namespace NinjaTrader.NinjaScript.Indicators
 
         private void Finish(int index)
         {
-            FootprintBar bar;
-            FootprintAbsorption mark;
+            FootprintBar bar, before;
+            var found = new List<FootprintAbsorption>();
             lock (sync)
             {
                 if (!bars.TryGetValue(index, out bar) || bar.Cells.Count == 0)
                     return;
-                mark = bar.Absorption((long)Math.Round(Bars.GetClose(index) / TickSize), ExtremeTicks, AbsorbMultiple);
-                if (mark == null)
+                FootprintAbsorption one = bar.Absorption(CloseTick(index), ExtremeTicks, AbsorbMultiple);
+                if (one != null)
+                    found.Add(one);
+                if (bars.TryGetValue(index - 1, out before))
+                {
+                    FootprintAbsorption two = before.TwoBar(CloseTick(index - 1), bar, CloseTick(index), AverageDelta(index - 2), DeltaMultiple);
+                    if (two != null)
+                        found.Add(two);
+                }
+                if (found.Count == 0)
                     return;
-                marks[index] = mark;
+                marks[index] = found;
             }
             if (BarsPeriod.BarsPeriodType == BarsPeriodType.Minute)
-                CheckLevel(index, bar, mark);
+                foreach (FootprintAbsorption mark in found)
+                    CheckLevel(index, bar, mark);
         }
 
-        /// <summary>Absorption at today's GEX level (regular session only): alert, and log it for review.py.</summary>
+        private long CloseTick(int index)
+        {
+            return (long)Math.Round(Bars.GetClose(index) / TickSize);
+        }
+
+        /// <summary>Average size of the delta of up to 20 bars ending at `last`; 0 with fewer than 5.</summary>
+        private double AverageDelta(int last)
+        {
+            double sum = 0;
+            int n = 0;
+            for (int i = last; i > last - 20 && i > 0; i--)
+            {
+                FootprintBar b;
+                if (bars.TryGetValue(i, out b) && b.Cells.Count > 0)
+                {
+                    sum += Math.Abs(b.Delta);
+                    n++;
+                }
+            }
+            return n >= 5 ? sum / n : 0;
+        }
+
+        /// <summary>Absorption at today's GEX level (regular session only): alert, and log it for review.py.
+        /// `bar` is the bar that completed it.</summary>
         private void CheckLevel(int index, FootprintBar bar, FootprintAbsorption mark)
         {
             DateTime closeNy = TimeZoneInfo.ConvertTime(Bars.GetTime(index), NinjaTrader.Core.Globals.GeneralOptions.TimeZoneInfo, newYork);
@@ -372,12 +428,19 @@ namespace NinjaTrader.NinjaScript.Indicators
             if (!levelsByDay.TryGetValue(startNy.Date, out found)
                 && (State != State.Realtime || !LoadLevels() || !levelsByDay.TryGetValue(startNy.Date, out found)))
                 return;  // levels logged after the indicator was loaded get picked up in real time
-            double extreme = (mark.AtLow ? mark.FromTick : mark.ToTick) * TickSize;
-            double tolerance = Math.Max(extreme * GexDetector.TolerancePct, 2 * TickSize);
+            double from = mark.FromTick * TickSize, to = mark.ToTick * TickSize;
+            double tolerance = Math.Max(to * GexDetector.TolerancePct, 2 * TickSize);
             GexLevel nearest = null;
+            double best = double.MaxValue;
             foreach (GexLevel lv in found.Key)
-                if (Math.Abs(lv.Price - extreme) <= tolerance && (nearest == null || Math.Abs(lv.Price - extreme) < Math.Abs(nearest.Price - extreme)))
+            {
+                double away = lv.Price < from ? from - lv.Price : lv.Price > to ? lv.Price - to : 0;  // from the absorbed prices
+                if (away <= tolerance && away < best)
+                {
                     nearest = lv;
+                    best = away;
+                }
+            }
             if (nearest == null)
                 return;
             lock (sync)
@@ -386,28 +449,42 @@ namespace NinjaTrader.NinjaScript.Indicators
                 mark.Level = nearest.Price;
             }
 
-            double low = bar.LowTick * TickSize, high = bar.HighTick * TickSize, close = Bars.GetClose(index);
-            string direction = mark.AtLow ? "long" : "short";
-            Log(string.Join(",", product, startNy.ToString("yyyy-MM-dd HH:mm", CI), BarsPeriod.Value.ToString(CI), direction,
-                nearest.Name, Num(nearest.Price), Num(low), Num(high), Num(close), Num(mark.Volume), Num(bar.Volume), Num(bar.Delta)));
+            // the trade review.py paper-trades: long above the bar's high, stop under the absorbed low (mirror for shorts)
+            double low = (mark.AtLow ? mark.FromTick : bar.LowTick) * TickSize, high = (mark.AtLow ? bar.HighTick : mark.ToTick) * TickSize;
+            Log(string.Join(",", product, startNy.ToString("yyyy-MM-dd HH:mm", CI), BarsPeriod.Value.ToString(CI), mark.Bars.ToString(CI),
+                mark.AtLow ? "long" : "short", nearest.Name, Num(nearest.Price), Num(low), Num(high), Num(Bars.GetClose(index)),
+                Num(mark.Effort), Num(bar.Volume), Num(bar.Delta)));
             if (State != State.Realtime)
                 return;
-            string zone = Px(mark.FromTick * TickSize) + "-" + Px(mark.ToTick * TickSize);
-            string message = "ABSORPTION at " + nearest.Name + " " + Px(nearest.Price) + ": "
-                + (mark.AtLow ? "sellers hit " + Num(mark.Volume) + " at " + zone + " but the bar closed in its upper half, buyers are defending the level"
-                              : "buyers lifted " + Num(mark.Volume) + " at " + zone + " but the bar closed in its lower half, sellers are defending the level")
-                + ". TEST signal, paper only.";
+            string what;
+            if (mark.Bars == 2)
+                what = mark.AtLow
+                    ? "the bar before sold hard (delta -" + Num(mark.Effort) + "), this one could not go much lower, turned to buying (delta " + Signed(bar.Delta) + ") and closed in its upper half"
+                    : "the bar before bought hard (delta +" + Num(mark.Effort) + "), this one could not go much higher, turned to selling (delta " + Signed(bar.Delta) + ") and closed in its lower half";
+            else
+            {
+                string zone = Px(from) + "-" + Px(to);
+                what = mark.AtLow ? "sellers hit " + Num(mark.Effort) + " at " + zone + " but the bar closed in its upper half"
+                                  : "buyers lifted " + Num(mark.Effort) + " at " + zone + " but the bar closed in its lower half";
+            }
+            string message = "ABSORPTION" + (mark.Bars == 2 ? " (2 bars)" : "") + " at " + nearest.Name + " " + Px(nearest.Price) + ": " + what
+                + (mark.AtLow ? ", buyers are defending the level" : ", sellers are defending the level") + ". TEST signal, paper only.";
             Print(Time[0].ToString("yyyy-MM-dd HH:mm") + " " + Instrument.MasterInstrument.Name + " " + message);
-            Alert("gexAbs" + index, Priority.High, Instrument.MasterInstrument.Name + " " + message,
+            Alert("gexAbs" + index + "_" + mark.Bars, Priority.High, Instrument.MasterInstrument.Name + " " + message,
                 NinjaTrader.Core.Globals.InstallDir + @"\sounds\Alert2.wav", 0, Brushes.Black, Brushes.Gold);
+        }
+
+        /// <summary>One row per product, bar, timeframe, pattern and direction.</summary>
+        private static string LogKey(string[] c)
+        {
+            return string.Join("|", c[0], c[1], c[2], c[3], c[4]);
         }
 
         private void Log(string line)
         {
             if (!LogAbsorption)
                 return;
-            string[] c = line.Split(',');
-            string key = c[0] + "|" + c[1] + "|" + c[2] + "|" + c[3];
+            string key = LogKey(line.Split(','));
             lock (FileLock)
             {
                 if (logged.Contains(key))
@@ -514,18 +591,27 @@ namespace NinjaTrader.NinjaScript.Indicators
                         float below = chartScale.GetYByValue((bar.LowTick - 0.5) * TickSize) + 2;
                         if (totals)
                         {
-                            RenderTarget.DrawText((bar.Delta >= 0 ? "+" : "") + Num(bar.Delta), labelFont,
+                            RenderTarget.DrawText(Signed(bar.Delta), labelFont,
                                 new SharpDX.RectangleF(x - 40, below, 80, 13), bar.Delta >= 0 ? buyStrongDx : sellStrongDx);
                             RenderTarget.DrawText(Num(bar.Volume), labelFont, new SharpDX.RectangleF(x - 40, below + 13, 80, 13), textDx);
                         }
 
-                        FootprintAbsorption mark;
-                        if (!marks.TryGetValue(i, out mark))
+                        List<FootprintAbsorption> found;
+                        if (!marks.TryGetValue(i, out found))
                             continue;
-                        RenderTarget.DrawRectangle(Cell(chartScale, mark.FromTick, mark.ToTick, left - 2, width + 4), absorbDx, 2f);
-                        string label = "ABSORB" + (mark.LevelName == "" ? "" : " " + mark.LevelName + " " + Px(mark.Level));
-                        float y = mark.AtLow ? below + (totals ? 26 : 0) : chartScale.GetYByValue((bar.HighTick + 0.5) * TickSize) - 15;
-                        RenderTarget.DrawText(label, labelFont, new SharpDX.RectangleF(x - 110, y, 220, 13), absorbDx);
+                        float above = chartScale.GetYByValue((bar.HighTick + 0.5) * TickSize) - 15;
+                        float under = below + (totals ? 26 : 0);
+                        foreach (FootprintAbsorption mark in found)
+                        {
+                            float from = mark.Bars == 2 ? chartControl.GetXByBarIndex(ChartBars, i - 1) - width / 2 : left;  // over both bars
+                            RenderTarget.DrawRectangle(Cell(chartScale, mark.FromTick, mark.ToTick, from - 2, x + width / 2 - from + 4), absorbDx, 2f);
+                            string label = "ABSORB" + (mark.Bars == 2 ? " 2 bars" : "") + (mark.LevelName == "" ? "" : " " + mark.LevelName + " " + Px(mark.Level));
+                            RenderTarget.DrawText(label, labelFont, new SharpDX.RectangleF(x - 110, mark.AtLow ? under : above, 220, 13), absorbDx);
+                            if (mark.AtLow)
+                                under += 13;
+                            else
+                                above -= 13;
+                        }
                     }
                 }
             }
@@ -554,6 +640,11 @@ namespace NinjaTrader.NinjaScript.Indicators
             return x.ToString("0.##", CI);
         }
 
+        private static string Signed(double x)
+        {
+            return (x >= 0 ? "+" : "") + Num(x);
+        }
+
         private string Px(double x)
         {
             return Instrument.MasterInstrument.RoundToTickSize(x).ToString("0.##", CI);
@@ -576,10 +667,14 @@ namespace NinjaTrader.NinjaScript.Indicators
         [Display(Name = "Absorption: volume multiple", Description = "Selling at the low (buying at the high) per price must reach this many times the bar's average volume per price.", Order = 4, GroupName = "Absorption")]
         public double AbsorbMultiple { get; set; }
 
-        [Display(Name = "Levels file", Description = "history/levels_history.csv written by python gex.py", Order = 5, GroupName = "GEX")]
+        [Range(0.1, double.MaxValue)]
+        [Display(Name = "Absorption 2 bars: delta multiple", Description = "The first bar's delta must reach this many times the average size of the delta of the 20 bars before it.", Order = 5, GroupName = "Absorption")]
+        public double DeltaMultiple { get; set; }
+
+        [Display(Name = "Levels file", Description = "history/levels_history.csv written by python gex.py", Order = 6, GroupName = "GEX")]
         public string LevelsFile { get; set; }
 
-        [Display(Name = "Log absorption at GEX levels", Description = "Append them to absorption.csv next to the levels file, for review.py", Order = 6, GroupName = "GEX")]
+        [Display(Name = "Log absorption at GEX levels", Description = "Append them to absorption.csv next to the levels file, for review.py", Order = 7, GroupName = "GEX")]
         public bool LogAbsorption { get; set; }
 
         [XmlIgnore]

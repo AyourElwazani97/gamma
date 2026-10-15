@@ -32,7 +32,7 @@ How to read it:
   Touch odds: 'Touched' a bit under 'Avg predicted' is normal (options usually price more movement
   than happens). Far apart over many levels = don't lean on gex.py's Touch column."""
 FAILED, RETEST, RETEST_DIV = "Failed breakout", "2nd touch of 0DTE wall", "2nd touch + RSI divergence"
-ABSORB = "Absorption at a level"  # logged by the NinjaTrader footprint
+ABSORB, ABSORB2 = "Absorption (1 bar)", "Absorption (2 bars)"  # logged by the NinjaTrader footprint
 SCORE_FILTERS = ("all", "OK: above flip, reward >= risk", "below flip")
 TOUCH_EDGES = (0.05, 0.2, 0.4, 0.6)  # predicted-chance buckets for the touch odds check
 TOUCH_LABELS = ("0-5%", "5-20%", "20-40%", "40-60%", "60-100%")
@@ -87,7 +87,8 @@ def grade(row, bars, absorption_log=()):
     rsi_series = rsi(session["Close"]) if not session.empty else None
     retests = second_touches(rth, levels, flip, tolerance=tolerance, threshold=threshold, rsi_series=rsi_series)
     setups += [(RETEST, s) for s in retests] + [(RETEST_DIV, s) for s in retests if s.divergence]
-    setups += [(ABSORB, s) for s in absorptions(absorption_log, row["product"], day, levels, flip)]
+    absorbed = absorptions(absorption_log, row["product"], day, levels, flip)
+    setups += [(ABSORB if s.bars == 1 else ABSORB2, s) for s in absorbed]
     profile = volume_profile(trading_day(bars, prior_trading_day(day)))
     near = [] if profile is None else confluences(levels, profile, o * CONFLUENCE_PCT)
     return {
@@ -152,7 +153,7 @@ def touch_scores(graded):
 def setup_scores(graded):
     """{(setup, filter): (trades, won, lost, net R)} over all sessions' paper trades; unfilled entries don't count."""
     scores = {}
-    for kind in (FAILED, RETEST, RETEST_DIV, ABSORB):
+    for kind in (FAILED, RETEST, RETEST_DIV, ABSORB, ABSORB2):
         for name in SCORE_FILTERS:
             taken = [
                 t for g in graded for k, s, t in g.get("trades", [])
