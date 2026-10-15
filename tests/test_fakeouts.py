@@ -81,3 +81,10 @@ def test_failed_reclaim_of_a_put_wall_is_not_faded():
 
 def test_dip_below_a_call_wall_from_above_is_not_faded():
     assert find([(105, 106, 103, 104), (104, 105, 97, 101)], [("Call Wall", 100)]) == []
+
+
+def test_a_close_right_on_the_level_does_not_arm_a_push():
+    # Kept on purpose (checked Oct 15, 2026): counting it would have added ES Oct 15 (+1.8R, but below the flip,
+    # skipped anyway) and turned ES Oct 8's OK trade from a scratch into -1R (chop right on the 0DTE Put Wall)
+    assert find([(105, 106, 100, 100), (100, 102, 97, 101)], [("Put Wall", 100)]) == []
+    assert find([(95, 100, 94, 100), (100, 103, 99, 99)], [("Call Wall", 100)]) == []
