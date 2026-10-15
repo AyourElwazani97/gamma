@@ -30,7 +30,8 @@ class NtCheck
             fw + @"\mscorlib.dll", fw + @"\System.dll", fw + @"\System.Core.dll", fw + @"\System.Xml.dll", fw + @"\System.Xaml.dll",
             fw + @"\System.ComponentModel.DataAnnotations.dll", fw + @"\WPF\PresentationCore.dll", fw + @"\WPF\PresentationFramework.dll",
             fw + @"\WPF\WindowsBase.dll", fw + @"\netstandard.dll",
-            NtBin + @"\NinjaTrader.Core.dll", NtBin + @"\NinjaTrader.Gui.dll", custom + @"\NinjaTrader.Custom.dll" };
+            NtBin + @"\NinjaTrader.Core.dll", NtBin + @"\NinjaTrader.Gui.dll", custom + @"\NinjaTrader.Custom.dll",
+            NtBin + @"\SharpDX.dll", NtBin + @"\SharpDX.Direct2D1.dll", NtBin + @"\SharpDX.DXGI.dll" };  // chart rendering
         var refs = refPaths.Where(File.Exists).Select(p => (MetadataReference)MetadataReference.CreateFromFile(p)).ToList();
         var parse = CSharpParseOptions.Default.WithLanguageVersion(LanguageVersion.Latest);
         var trees = args.Skip(2).Select(f => CSharpSyntaxTree.ParseText(File.ReadAllText(f), parse, f)).ToList();
