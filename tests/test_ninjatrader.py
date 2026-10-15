@@ -21,6 +21,7 @@ NT_BIN = Path(r"C:\Program Files\NinjaTrader 8\bin")
 CUSTOM = Path(os.path.expanduser("~")) / "Documents" / "NinjaTrader 8" / "bin" / "Custom" / "NinjaTrader.Custom.dll"
 CSC = Path(r"C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe")
 STRATEGY = ROOT / "ninjatrader" / "GexFailedBreakout.cs"
+FOOTPRINT = ROOT / "ninjatrader" / "GexFootprint.cs"
 TOOLS = ROOT / "ninjatrader" / "tools"
 
 pytestmark = pytest.mark.skipif(
@@ -78,3 +79,30 @@ def test_strategy_finds_the_same_failed_breakouts_as_python(ntcheck, tmp_path):
     assert code == 0, output
     done = subprocess.run([str(exe), str(ROOT)], capture_output=True, text=True, check=True, stdin=subprocess.DEVNULL)
     assert sorted(done.stdout.splitlines()) == python_signals()
+
+
+def test_footprint_compiles_against_ninjatrader(ntcheck):
+    code, output = compile_(ntcheck, "-", "dll", STRATEGY, FOOTPRINT)  # it reads the levels with the strategy's code
+    assert code == 0, output
+    assert "warning" not in output, output
+
+
+def test_footprint_math(ntcheck, tmp_path):
+    exe = tmp_path / "FootprintCheck.exe"
+    code, output = compile_(ntcheck, exe, "exe", STRATEGY, FOOTPRINT, TOOLS / "FootprintCheck.cs")
+    assert code == 0, output
+    done = subprocess.run([str(exe)], capture_output=True, text=True, check=True, stdin=subprocess.DEVNULL)
+    assert done.stdout.splitlines() == [
+        "side T F T F F T",
+        "bar 0 0 1 2 2 -1 -1",
+        "rows1 100:5/20:-- 101:70/10:B- 102:8/30:-S 103:2/0:--",
+        "rows2 100:75/30:-S 102:10/30:--",
+        "gap 100:9/0:-- 102:3/0:B-",
+        "abs low 100-101 140",  # heavy selling at the low, closed in the upper half
+        "abs none",  # closed in the middle
+        "abs high 109-110 140",
+        "abs none",  # more buyers than sellers at the low
+        "abs none",  # bar too small
+        "abs none",  # not heavy enough
+        "rowsize 1 2 4 8 20 2000",
+    ]

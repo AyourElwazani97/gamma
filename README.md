@@ -4,7 +4,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white" alt="Python 3.10+">
-  <img src="https://img.shields.io/badge/tests-140%20passing-0ca30c" alt="140 tests passing">
+  <img src="https://img.shields.io/badge/tests-171%20passing-0ca30c" alt="171 tests passing">
   <img src="https://img.shields.io/badge/data-free%20CBOE%20options-6e7887" alt="Free CBOE options data">
   <img src="https://img.shields.io/badge/TradingView-indicator%20included-131722?logo=tradingview&logoColor=white" alt="TradingView indicator included">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-a9b2bf" alt="MIT license"></a>
@@ -252,6 +252,31 @@ The indicator does not place orders. When it says `SHORT below 7863.25, stop 787
 
 The strategy is checked by `tests/test_ninjatrader.py` (runs where NinjaTrader 8 is installed): it compiles against NinjaTrader's own assemblies and finds exactly the same setups as `gex/fakeouts.py` on every saved session.
 
+### Footprint and absorption
+
+[`ninjatrader/GexFootprint.cs`](ninjatrader/GexFootprint.cs) is a free footprint indicator. It needs no Order Flow+ license and no Tick Replay. Inside every candle it shows, at each price, **contracts sold at the bid (left) x bought at the ask (right)**:
+
+- each cell is tinted green where buyers traded more and red where sellers did; the darker the tint, the more volume. The price with the most volume (the bar's POC) is outlined
+- a number in **blue** is a buy imbalance: at least 3x the sellers one row lower. A number in **red** is a sell imbalance: at least 3x the buyers one row higher
+- under each bar: the bar's **delta** (buys minus sells) and its volume
+
+**Absorption** is outlined in gold and labelled `ABSORB`. It means heavy selling into the bar's low that could not push price lower: in the lowest 2 prices, sellers traded at least 1.5x the bar's average volume per price, and more than the buyers there, yet the bar closed in its upper half. Someone with limit orders was buying everything the sellers threw at them. The mirror image (heavy buying into the high, closed in the lower half) is absorption of buyers at the high.
+
+When absorption happens **at a GEX level** in the regular session (within 0.02% of it, like a touch in the strategy), the label names the level (`ABSORB 0DTE Put Wall 6650`) and NinjaTrader alerts. It is also logged to `history/absorption.csv` so `review.py` can score it later. It's a **test signal**: watch it, don't trade it, until it has a track record.
+
+**Install once**
+1. Copy `GexFootprint.cs` into `Documents\NinjaTrader 8\bin\Custom\Indicators` (`GexFailedBreakout.cs` must be installed too, it reads the levels).
+2. NinjaScript Editor → **F5**.
+
+**Use**
+1. A 1- or 5-minute ES / MES / NQ / MNQ chart → **Indicators → GexFootprint**. It loads the tick history of the chart's days, so keep *Days to load* small (3-5).
+2. Drag the time axis (bottom) to the left to widen the bars until the numbers show. Rows merge automatically (0.25 → 0.5 → 1 → 2 points) so they stay readable; set **Ticks per row** to fix it.
+3. In the chart's **Data Series**, set **Bar width** to 1 so the candles don't cover the numbers.
+
+How to read it at a level: price comes down to the put wall, the cells at the low turn dark red (big selling), but the bar closes back up and the next bar doesn't make a new low: absorbed. If instead the low keeps breaking with red imbalances stacking below the wall, the sellers are winning: no long.
+
+Buyer or seller is decided per trade: at or above the ask = buyer, at or below the bid = seller, in between = the direction of the last price change. FreeOrderFlow's Aggression Delta splits trades at the bid and ask the same way (it skips the ones in between), so the bar deltas should come close to it. The footprint math is checked by `tests/test_ninjatrader.py`.
+
 ---
 
 ## Commands
@@ -456,9 +481,10 @@ gex/
   profile.py        volume profile from 5-minute bars, levels near it
   output.py         report, chart, TradingView line, history CSV
 tradingview/        GEX Levels indicator (Pine Script v6)
-ninjatrader/        GexFailedBreakout strategy (NinjaScript), trades the setups on a sim account
+ninjatrader/        GexFailedBreakout strategy (NinjaScript), trades the setups on a sim account,
+                    and GexFootprint (footprint chart, absorption at the GEX levels)
 history/            your daily levels log, plus bars/ (5-minute bars of each finished session)
-tests/              140 tests (python -m pytest)
+tests/              171 tests (python -m pytest)
 legacy/             the original 2022-2024 scripts
 ```
 
