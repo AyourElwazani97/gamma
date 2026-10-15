@@ -246,3 +246,28 @@ def test_review_prints_the_setup_scoreboard():
     assert "Setup scoreboard" in out
     assert "Failed breakout" in out and "2nd touch of 0DTE wall" in out
     assert "+2.00" in out
+
+
+def bars_with_volume(day, rows):
+    """rows: (HH:MM, open, high, low, close, volume)"""
+    index = pd.DatetimeIndex([ts(f"{day} {t}") for t, *_ in rows])
+    return pd.DataFrame([r[1:] for r in rows], index=index, columns=["Open", "High", "Low", "Close", "Volume"])
+
+
+def test_grade_marks_levels_near_the_prior_session_profile():
+    prior = bars_with_volume("2026-09-29", [("10:00", 7800, 7800, 7800, 7800, 5000), ("10:05", 7790, 7791, 7789, 7790, 100)])
+    today = bars_with_volume("2026-09-30", [("09:30", 7700, 7720, 7645, 7690, 1000)])
+    g = grade(history_row(asof_ny="2026-09-30 08:00"), pd.concat([prior, today]))
+    assert g["profile"].poc == 7800
+    assert g["confluence"] == ["Call Wall"]  # 7800, on the prior POC; the others are far away
+
+
+def test_review_compares_levels_near_the_profile_with_the_rest():
+    from gex.review import format_review
+
+    prior = bars_with_volume("2026-09-29", [("10:00", 7800, 7801, 7799, 7800, 5000)])
+    today = bars_with_volume("2026-09-30", [("09:30", 7700, 7720, 7645, 7690, 1000), ("09:35", 7690, 7810, 7690, 7795, 900)])
+    g = grade(history_row(asof_ny="2026-09-30 08:00"), pd.concat([prior, today]))
+    out = format_review("ES", [g])
+    assert "Levels near the prior session's volume profile" in out
+    assert "near the profile" in out and "other levels" in out

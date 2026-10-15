@@ -3,11 +3,16 @@ import sys
 import webbrowser
 from pathlib import Path
 
+import pandas as pd
+
+from gex.bars import archived_bars, bars_path, load_bars, trading_day
 from gex.config import PRODUCTS
 from gex.data import NEW_YORK, load_chain
 from gex.futures import fetch_basis
 from gex.levels import analyze
-from gex.output import append_history, format_report, plot_levels, tradingview_string
+from gex.output import append_history, format_report, level_rows, plot_levels, to_futures, tradingview_string
+from gex.profile import CONFLUENCE_PCT, confluences, format_confluence, prior_trading_day, volume_profile
+from gex.review import fetch_bars, session_date
 
 
 def parse_args(argv):
@@ -42,6 +47,24 @@ def get_basis(product, args):
     return basis, f"live, {when.tz_convert(NEW_YORK):%a %H:%M} NY"
 
 
+def prior_profile_note(product, lv, basis, bars_dir, download):
+    """The prior session's volume profile and the levels near it, or None without its bars.
+    Saved bars first; downloads (and saves) them only when `download`."""
+    prior = prior_trading_day(session_date(lv.asof.tz_convert(NEW_YORK)))
+    if download:
+        now = pd.Timestamp.now(tz=NEW_YORK)
+        bars = archived_bars(product.name, [prior], now, bars_dir, lambda start, end: fetch_bars(product, start, end))
+    else:
+        path = bars_path(bars_dir, product.name, prior)
+        bars = load_bars(path) if path.exists() else None
+    profile = None if bars is None else volume_profile(trading_day(bars, prior))
+    if profile is None:
+        return None
+    levels = [(r.name, to_futures(r.index_price, basis)) for r in level_rows(lv)]
+    tolerance = to_futures(lv.spot, basis) * CONFLUENCE_PCT
+    return format_confluence(prior, profile, confluences(levels, profile, tolerance), tolerance)
+
+
 def run_product(product, args):
     try:
         index_chain = load_chain(product.index_ticker, args.from_dir)
@@ -67,6 +90,14 @@ def run_product(product, args):
     lv = analysis.levels
     basis, basis_note = get_basis(product, args)
     print(format_report(lv, basis, basis_note))
+    if basis is not None:  # the profile is in futures prices
+        try:
+            note = prior_profile_note(product, lv, basis, Path(args.history).parent / "bars", not args.from_dir)
+        except Exception as e:  # network / yfinance: the levels are still fine without it
+            note = None
+            print(f"Warning: prior session volume profile unavailable ({e})", file=sys.stderr)
+        if note:
+            print("\n" + note)
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)

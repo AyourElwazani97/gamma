@@ -10,12 +10,13 @@ import numpy as np
 import pandas as pd
 from matplotlib.figure import Figure
 
-from gex.bars import archived_bars
+from gex.bars import archived_bars, trading_day
 from gex.config import PRODUCTS
 from gex.data import NEW_YORK
 from gex.fakeouts import failed_breakouts
 from gex.output import BG, GRAY, GREEN, GRID, RED, TEXT, YELLOW, _level_color, fmt
 from gex.paper import simulate
+from gex.profile import CONFLUENCE_PCT, confluences, prior_trading_day, volume_profile
 from gex.reactions import THRESHOLD_PCT, TOLERANCE_PCT, WINDOW_BARS, level_reactions, levels_from_row
 from gex.retests import second_touches
 
@@ -72,6 +73,8 @@ def grade(row, bars):
     tolerance, threshold = o * TOLERANCE_PCT, o * THRESHOLD_PCT
     setups = [(FAILED, s) for s in failed_breakouts(rth, levels, flip, tolerance=tolerance)]
     setups += [(RETEST, s) for s in second_touches(rth, levels, flip, tolerance=tolerance, threshold=threshold)]
+    profile = volume_profile(trading_day(bars, prior_trading_day(day)))
+    near = [] if profile is None else confluences(levels, profile, o * CONFLUENCE_PCT)
     return {
         "date": day,
         "product": row["product"],
@@ -90,6 +93,8 @@ def grade(row, bars):
         "em_width": em_high - em_low if has_em else None,
         "reactions": level_reactions(rth, levels, threshold=threshold, tolerance=tolerance),
         "trades": [(kind, s, simulate(s, rth)) for kind, s in sorted(setups, key=lambda ks: ks[1].time)],
+        "profile": profile,  # prior session's volume profile, None without its bars
+        "confluence": [name for name, *_ in near],  # levels near it
         "bars": rth,
     }
 
@@ -101,6 +106,18 @@ def _passes(setup, name):
         return True
     reward_ok = setup.target is None or abs(setup.entry - setup.target) >= abs(setup.stop - setup.entry)
     return setup.positive_gamma is not False and reward_ok  # the rule track.py and the strategy call OK
+
+
+def confluence_scores(graded):
+    """First-touch outcomes of levels near the prior session's volume profile vs the other levels
+    (sessions without a prior profile are left out)."""
+    groups = {"near the profile": Counter(), "other levels": Counter()}
+    for g in graded:
+        if g.get("profile") is None:
+            continue
+        for r in g.get("reactions", []):
+            groups["near the profile" if r.name in g["confluence"] else "other levels"][r.outcome] += 1
+    return groups
 
 
 def setup_scores(graded):
@@ -211,6 +228,17 @@ def format_review(product, graded):
             f"  {level:<20}  {counts['held']:>4}  {counts['broke']:>5}  {counts['stalled']:>7}  "
             f"{counts['not reached']:>11}"
         )
+    if any(g.get("profile") for g in graded):
+        lines += [
+            "",
+            "Levels near the prior session's volume profile (POC / VAH / VAL within 0.06%), first touch:",
+            f"  {'Group':<17}  {'reached':>7}  {'held':>4}  {'broke':>5}  {'stalled':>7}",
+        ]
+        for group, counts in confluence_scores(graded).items():
+            reached = counts["held"] + counts["broke"] + counts["stalled"]
+            lines.append(
+                f"  {group:<17}  {reached:>7}  {counts['held']:>4}  {counts['broke']:>5}  {counts['stalled']:>7}"
+            )
     lines += [
         "",
         "Setup scoreboard (paper trades: stop entry, stop, target, stop to entry after 1R; R = each trade's risk):",
@@ -331,6 +359,7 @@ def main(argv=None, today=None):
             continue
 
         days = [session_date(pd.Timestamp(r["asof_ny"], tz=NEW_YORK)) for r in product_rows]
+        days += [prior_trading_day(d) for d in days]  # for each session's prior volume profile
         try:
             bars = archived_bars(name, days, now, saved, lambda start, end: fetch_bars(PRODUCTS[name], start, end))
         except Exception as e:  # network / yfinance

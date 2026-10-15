@@ -4,7 +4,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white" alt="Python 3.10+">
-  <img src="https://img.shields.io/badge/tests-122%20passing-0ca30c" alt="122 tests passing">
+  <img src="https://img.shields.io/badge/tests-132%20passing-0ca30c" alt="132 tests passing">
   <img src="https://img.shields.io/badge/data-free%20CBOE%20options-6e7887" alt="Free CBOE options data">
   <img src="https://img.shields.io/badge/TradingView-indicator%20included-131722?logo=tradingview&logoColor=white" alt="TradingView indicator included">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-a9b2bf" alt="MIT license"></a>
@@ -267,6 +267,15 @@ python gex.py --no-history      # don't log this run
 ```
 
 Writes `output/ES_<date>.png`, `output/ES_tradingview.txt` and adds a row to `history/levels_history.csv`.
+
+Below the ladder it prints the **prior session's volume profile** and the levels that sit on it:
+
+```text
+Wed Oct 14 volume profile: POC 7767.75, VAH 7807.75, VAL 7744.75
+  Confluence: Put Wall 7746.5 ~ VAL 7744.75 (1.75 away) | Expected Move Low 7744 ~ VAL 7744.75 (0.75 away)
+```
+
+POC is the price with the most volume, VAH / VAL the edges of the value area (70% of the volume). A GEX level within 0.06% (about 5 ES / 18 NQ points) of one of them has two reasons to matter: options hedging and traded volume. The profile is built from 5-minute bars (each bar's volume spread over its range), the same way FreeOrderFlow computes its value area; on Oct 14, 2026 it came within 0.5-2 ES points of NinjaTrader's tick-based profile.
 </details>
 
 <details>
@@ -334,7 +343,7 @@ python review.py --detail --charts output/review  # plus a 5-minute chart per se
 ```
 
 For every level it reports the first touch, whether it was tested as support or resistance, and whether price
-**held** (moved 0.1% away) or **broke** (moved 0.1% through) within 60 minutes. It ends with a scorecard per level type and a **setup scoreboard**: every failed breakout and 0DTE second touch of every saved session, paper-traded with the strategy's rules (stop entry, stop, target, stop to entry after one risk, cancel after 30 minutes), in R (multiples of each trade's risk), for all setups, the ones `track.py` calls OK, and the ones below the Gamma Flip.
+**held** (moved 0.1% away) or **broke** (moved 0.1% through) within 60 minutes. It ends with a scorecard per level type and a **setup scoreboard**: every failed breakout and 0DTE second touch of every saved session, paper-traded with the strategy's rules (stop entry, stop, target, stop to entry after one risk, cancel after 30 minutes), in R (multiples of each trade's risk), for all setups, the ones `track.py` calls OK, and the ones below the Gamma Flip. Before it, a small table compares first touches of the levels near the prior session's volume profile with the other levels, to see whether that confluence makes a level hold more often.
 yfinance keeps 5-minute bars for only about 60 days, so `review.py` saves each finished session (from 18:00 the evening before to the 16:00 close) to `history/bars/ES_<date>.csv` and reads it from there next time. Run it at least once a month and commit `history/` so every logged day stays testable.
 </details>
 
@@ -433,11 +442,12 @@ gex/
   bars.py           saved 5-minute bars per session
   retests.py        second touch of a 0DTE wall (test setup)
   paper.py          paper-trades a setup bar by bar
+  profile.py        volume profile from 5-minute bars, levels near it
   output.py         report, chart, TradingView line, history CSV
 tradingview/        GEX Levels indicator (Pine Script v6)
 ninjatrader/        GexFailedBreakout strategy (NinjaScript), trades the setups on a sim account
 history/            your daily levels log, plus bars/ (5-minute bars of each finished session)
-tests/              122 tests (python -m pytest)
+tests/              132 tests (python -m pytest)
 legacy/             the original 2022-2024 scripts
 ```
 
