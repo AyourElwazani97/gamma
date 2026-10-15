@@ -1,5 +1,6 @@
 import json
 from dataclasses import dataclass
+from datetime import time, timedelta
 from pathlib import Path
 
 import pandas as pd
@@ -10,6 +11,7 @@ NEW_YORK = "America/New_York"
 # Standard monthly index options settle at the open; weeklies (SPXW, NDXP) at the close
 AM_SETTLED_ROOTS = {"SPX", "NDX"}
 SYMBOL_PATTERN = r"^(?P<root>[A-Z]+)(?P<expiry>\d{6})(?P<type>[CP])(?P<strike>\d{8})$"
+OPEN, CLOSE = time(9, 30), time(16, 0)  # regular session, New York
 STALE_PRICE = pd.Timedelta(minutes=30)  # CBOE runs 15 minutes late; older = the index isn't trading
 
 
@@ -21,6 +23,16 @@ class Chain:
     iv30: float | None
     options: pd.DataFrame  # root, expiry, type, strike, iv, oi, bid, ask, multiplier
     price_time: pd.Timestamp | None = None  # UTC time of `spot`
+
+
+def session_date(asof):
+    """Regular session the levels are for: same day until the 16:00 close, else the next weekday."""
+    day = asof.date()
+    if asof.time() >= CLOSE:
+        day += timedelta(days=1)
+    while day.weekday() >= 5:
+        day += timedelta(days=1)
+    return day
 
 
 def fetch_raw(ticker, timeout=30):

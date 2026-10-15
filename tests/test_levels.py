@@ -207,3 +207,13 @@ def test_analyze_at_a_live_spot():
     assert lv.move_sd == pytest.approx(4.0 * np.sqrt(np.pi / 2))
     expected = gex_by_strike(combine(chain), 97.0, PRODUCTS["ES"].strike_step)
     pd.testing.assert_frame_equal(result.by_strike, expected)  # gamma at the live price
+
+
+def test_options_settling_at_the_session_open_are_left_out():
+    # ASOF is 09:00 New York, before the open: an AM-settled monthly expiring at 09:30 today is gone
+    # for the whole session, the PM weekly expiring at 16:00 is not
+    opts = make_opts([("P", 100, 90000, 0.2, 1), ("P", 95, 1000, 0.2, 1), ("C", 105, 1000, 0.2, 1)])
+    today = ASOF.tz_convert("America/New_York").normalize()
+    opts["expiry"] = [today + pd.Timedelta(hours=9.5), today + pd.Timedelta(hours=16), today + pd.Timedelta(hours=16)]
+    lv = analyze(PRODUCTS["ES"], chain_of(opts, spot=100.0)).levels
+    assert lv.put_wall == 95.0  # not the huge at-the-money 100 put that settles at the open

@@ -13,7 +13,7 @@ from matplotlib.figure import Figure
 
 from gex.bars import archived_bars, trading_day
 from gex.config import PRODUCTS
-from gex.data import NEW_YORK
+from gex.data import CLOSE, NEW_YORK, OPEN, session_date
 from gex.fakeouts import failed_breakouts
 from gex.greeks import touch_probability
 from gex.levels import STRADDLE_TO_SD
@@ -23,7 +23,6 @@ from gex.profile import CONFLUENCE_PCT, confluences, prior_trading_day, volume_p
 from gex.reactions import THRESHOLD_PCT, TOLERANCE_PCT, WINDOW_BARS, level_reactions, levels_from_row
 from gex.retests import rsi, second_touches
 
-OPEN, CLOSE = time(9, 30), time(16, 0)
 HOW_TO_READ = """
 How to read it:
   Rng/EM < 1 = quieter day than options priced, > 1 = wilder.
@@ -35,16 +34,6 @@ FAILED, RETEST, RETEST_DIV = "Failed breakout", "2nd touch of 0DTE wall", "2nd t
 SCORE_FILTERS = ("all", "OK: above flip, reward >= risk", "below flip")
 TOUCH_EDGES = (0.05, 0.2, 0.4, 0.6)  # predicted-chance buckets for the touch odds check
 TOUCH_LABELS = ("0-5%", "5-20%", "20-40%", "40-60%", "60-100%")
-
-
-def session_date(asof):
-    """Regular session the levels are for: same day until the 16:00 close, else the next weekday."""
-    day = asof.date()
-    if asof.time() >= CLOSE:
-        day += timedelta(days=1)
-    while day.weekday() >= 5:
-        day += timedelta(days=1)
-    return day
 
 
 def session_bars(bars, day):

@@ -4,7 +4,7 @@ from datetime import date
 import numpy as np
 import pandas as pd
 
-from gex.data import NEW_YORK
+from gex.data import NEW_YORK, OPEN, session_date
 from gex.greeks import bs_gamma, dollar_gamma
 
 PROFILE_RANGE = 0.10  # gamma profile / flip search: spot +- 10%
@@ -179,6 +179,10 @@ def analyze(product, index_chain, etf_chain=None, spot=None):
     """Compute all levels for a product from its index chain and optional ETF chain, with the index
     at `spot` (default: the chain's price)."""
     opts = combine(index_chain, etf_chain)
+    # Options that settle at or before the open (AM-settled monthlies on expiry day) have no gamma
+    # left in the session these levels are for
+    session = session_date(index_chain.timestamp.tz_convert(NEW_YORK))
+    opts = opts[opts["expiry"] > pd.Timestamp.combine(session, OPEN).tz_localize(NEW_YORK)]
     if opts.empty:
         raise ValueError(f"No live options with open interest in {index_chain.ticker}")
 
