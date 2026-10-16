@@ -245,6 +245,7 @@ The indicator does not place orders. When it says `SHORT below 7863.25, stop 787
 - moves the stop to the entry once price goes one risk in your favour
 - cancels an entry that isn't filled within 30 minutes, trades one setup at a time, stops for the day after 2 losses and is flat at 16:00
 - draws the levels, the signal with its plan, the entry/stop/target lines and each result, plus a panel with today's score; NinjaTrader alerts and the Output window tell you each step
+- shows the day's levels before the open too, as soon as `python gex.py` has logged them (from 16:00 the evening before), but only trades from 09:30
 
 **Safety:** it only sends orders to **simulation accounts**: NinjaTrader's own Sim accounts, Playback, or any connection in **Simulation** mode. On a **Live** connection (real money) it draws and alerts but never places an order. A broker **demo** account (for example NinjaTrader's `DEMO...` accounts) is not marked as simulation, so it only gets orders if you type its exact name in the strategy's **Allowed demo account** setting. Never type a real-money or prop-firm account there. The panel's last line always names the account and whether orders are on.
 

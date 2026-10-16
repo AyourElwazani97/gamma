@@ -249,6 +249,8 @@ namespace NinjaTrader.NinjaScript.Strategies
         private GexDetector detector;  // null = no levels for this session
         private double flip = double.NaN;
         private int dayFirstBar;
+        private DateTime nextDay = DateTime.MinValue;  // session whose levels show before its open
+        private int nextFirstBar;
         private int wins, losses, scratches;
         private double pnlPoints;
 
@@ -332,7 +334,10 @@ namespace NinjaTrader.NinjaScript.Strategies
             DateTime closeNy = TimeZoneInfo.ConvertTime(Time[0], Core.Globals.GeneralOptions.TimeZoneInfo, newYork);
             DateTime startNy = closeNy.AddMinutes(-BarsPeriod.Value);
             if (startNy.TimeOfDay < Open930 || startNy.TimeOfDay >= Close1600)
+            {
+                DrawBeforeOpen(GexLevelsFile.SessionDate(startNy), startNy.Date);
                 return;
+            }
             if (startNy.Date != day)
                 StartSession(startNy.Date);
             if (detector == null && State == State.Realtime && LoadLevels() && levelsByDay.ContainsKey(day))
@@ -366,6 +371,9 @@ namespace NinjaTrader.NinjaScript.Strategies
         private void StartSession(DateTime date)
         {
             day = date;
+            if (date == nextDay && levelsByDay.ContainsKey(date))  // the session's own labels take over at the open
+                foreach (GexLevel lv in levelsByDay[date].Key)
+                    RemoveDrawObject("gexNT" + date.ToString("yyyyMMdd") + lv.Name);
             wins = losses = scratches = 0;
             pnlPoints = 0;
             KeyValuePair<List<GexLevel>, double> found;
@@ -531,19 +539,46 @@ namespace NinjaTrader.NinjaScript.Strategies
             entryOrder = null;
         }
 
-        private void DrawSession()
+        /// <summary>Outside 09:30-16:00: draw the coming session's levels as soon as gex.py has logged them. Lines only, no
+        /// trading; the panel says so in the morning (in the evening it keeps the day's results).</summary>
+        private void DrawBeforeOpen(DateTime session, DateTime barDate)
         {
-            int ago = CurrentBar - dayFirstBar;
-            string date = day.ToString("yyyyMMdd");
-            foreach (GexLevel lv in detector.Levels)
+            if (session != nextDay)
+            {
+                nextDay = session;
+                nextFirstBar = CurrentBar;
+            }
+            KeyValuePair<List<GexLevel>, double> found;
+            if (!levelsByDay.TryGetValue(session, out found)
+                && (State != State.Realtime || !LoadLevels() || !levelsByDay.TryGetValue(session, out found)))
+                return;
+            DrawLevels("gexN", session, found.Key, CurrentBar - nextFirstBar);
+            if (session != barDate)
+                return;
+            double next = found.Value;
+            string regime = double.IsNaN(next) ? "No Gamma Flip in the levels"
+                : Close[0] > next ? "Above Gamma Flip " + Px(next) + ": fades allowed" : "Below Gamma Flip " + Px(next) + ": no fades";
+            Draw.TextFixed(this, "gexPanel", "GEX failed breakouts " + session.ToString("ddd MMM d") + ": today's levels\n" + regime
+                + "\nPre-market: no trades before the 09:30 New York open", TextPosition.TopRight);
+        }
+
+        private void DrawLevels(string prefix, DateTime session, IEnumerable<GexLevel> levels, int ago)
+        {
+            string date = session.ToString("yyyyMMdd");
+            foreach (GexLevel lv in levels)
             {
                 Brush b = LevelBrush(lv.Name);
                 DashStyleHelper dash = lv.Name.Contains("Expected") ? DashStyleHelper.Dash
                     : lv.Name.Contains("Magnet") && !lv.Name.Contains("Wall") ? DashStyleHelper.Dot : DashStyleHelper.Solid;
-                Draw.Line(this, "gexL" + date + lv.Name, false, ago, lv.Price, 0, lv.Price, b, dash, lv.Name.Contains("0DTE") || dash != DashStyleHelper.Solid ? 1 : 2);
-                Draw.Text(this, "gexT" + date + lv.Name, false, lv.Name + " " + Px(lv.Price), 0, lv.Price, 8, b,
+                Draw.Line(this, prefix + "L" + date + lv.Name, false, ago, lv.Price, 0, lv.Price, b, dash, lv.Name.Contains("0DTE") || dash != DashStyleHelper.Solid ? 1 : 2);
+                Draw.Text(this, prefix + "T" + date + lv.Name, false, lv.Name + " " + Px(lv.Price), 0, lv.Price, 8, b,
                     new SimpleFont("Arial", 9), TextAlignment.Left, Brushes.Transparent, Brushes.Transparent, 0);
             }
+        }
+
+        private void DrawSession()
+        {
+            DrawLevels("gex", day, detector.Levels, CurrentBar - dayFirstBar);
             if (trade != null)
             {
                 int since = CurrentBar - tradeBar;
