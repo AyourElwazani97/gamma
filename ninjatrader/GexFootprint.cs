@@ -3,6 +3,9 @@
 // low that could not push price lower (buyers defending), or heavy buying into the high that could not lift it, inside
 // one bar or over two (a bar sells hard, the next can't follow through and turns to buying).
 // Absorption at a GEX level from history/levels_history.csv is alerted and logged to history/absorption.csv for review.py.
+// Every finished bar (price, volume, buys, sells, delta) goes to history/live/<instrument>_<minutes>m_<day>.csv, and once a
+// second the last price and the bar still forming to history/live/<instrument>_<minutes>m_now.csv, so the Python side sees
+// what the chart sees without Yahoo's delay.
 //
 // Needs GexFailedBreakout.cs installed too (it reads the levels the same way).
 // Install: copy this file to Documents\NinjaTrader 8\bin\Custom\Indicators, then NinjaScript Editor -> F5 (compile).
@@ -179,6 +182,30 @@ namespace NinjaTrader.NinjaScript.Indicators
     {
         // rows of 0.25, 0.5, 1, 2, 5, 10, ... points on ES / NQ
         private static readonly int[] RowSteps = { 1, 2, 4, 8, 20, 40, 80, 200, 400, 800, 2000 };
+        private static readonly TimeSpan Evening1800 = new TimeSpan(18, 0, 0);
+        private static readonly CultureInfo CI = CultureInfo.InvariantCulture;
+
+        /// <summary>Trading day of a bar starting at `startNy` (New York time): the evening session from 18:00 belongs to
+        /// the next day, like the history/bars files review.py saves.</summary>
+        public static DateTime TradingDay(DateTime startNy)
+        {
+            return startNy.TimeOfDay >= Evening1800 ? startNy.Date.AddDays(1) : startNy.Date;
+        }
+
+        /// <summary>`t` with its UTC offset, the way pandas writes New York times: 2026-10-16 13:20:00-04:00.</summary>
+        public static string Stamp(DateTime t, TimeSpan offset)
+        {
+            return t.ToString("yyyy-MM-dd HH:mm:ss", CI) + (offset < TimeSpan.Zero ? "-" : "+") + offset.Duration().ToString(@"hh\:mm", CI);
+        }
+
+        /// <summary>One bar of a history/live file: Yahoo's columns (bar start, OHLC, volume), then the footprint's buys,
+        /// sells and delta.</summary>
+        public static string BarLine(DateTime startNy, TimeSpan offset, double open, double high, double low, double close,
+            double volume, double buy, double sell)
+        {
+            return Stamp(startNy, offset) + "," + string.Join(",", new[] { open, high, low, close, volume, buy, sell, buy - sell }
+                .Select(x => x.ToString("0.##", CI)));
+        }
 
         /// <summary>True = a buyer lifted the ask, false = a seller hit the bid. Between the two, or without a quote: the
         /// direction of the last price change (tick rule), or the last side when the price did not change.</summary>
@@ -228,6 +255,9 @@ namespace NinjaTrader.NinjaScript.Indicators
     {
         private const float MinRowPixels = 12;
         private const string LogHeader = "product,time_ny,minutes,bars,direction,level,level_price,low,high,close,effort,bar_volume,bar_delta";
+        private const string LiveHeader = "Datetime,Open,High,Low,Close,Volume,Buy,Sell,Delta";
+        private const string NowHeader = "Updated,Last,Bid,Ask," + LiveHeader;
+        private static readonly TimeSpan NowEvery = TimeSpan.FromSeconds(1);
         private static readonly CultureInfo CI = CultureInfo.InvariantCulture;
         private static readonly TimeSpan Open930 = new TimeSpan(9, 30, 0);
         private static readonly TimeSpan Close1600 = new TimeSpan(16, 0, 0);
@@ -253,6 +283,10 @@ namespace NinjaTrader.NinjaScript.Indicators
         private string product;
         private string logPath;
         private HashSet<string> logged;
+        private string liveDir;
+        private Dictionary<string, HashSet<string>> liveWritten;  // bar start times already in each live file
+        private DateTime nowWritten = DateTime.MinValue;  // UTC
+        private bool nowFailed;
 
         private SharpDX.Direct2D1.Brush buyDx, sellDx, buyStrongDx, sellStrongDx, absorbDx, textDx;
 
@@ -267,7 +301,7 @@ namespace NinjaTrader.NinjaScript.Indicators
                 DrawOnPricePanel = true;
                 DisplayInDataBox = false;
                 PaintPriceMarkers = false;
-                IsSuspendedWhileInactive = true;
+                IsSuspendedWhileInactive = false;  // keep logging and writing the live files while the chart is minimized or on a hidden tab
 
                 TicksPerRow = 0;
                 ImbalanceRatio = 3;
@@ -276,6 +310,7 @@ namespace NinjaTrader.NinjaScript.Indicators
                 DeltaMultiple = 1.5;
                 LevelsFile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "gamma", "history", "levels_history.csv");
                 LogAbsorption = true;
+                LiveFiles = true;
                 BuyBrush = Brushes.SeaGreen;
                 SellBrush = Brushes.IndianRed;
                 BuyStrongBrush = Brushes.DodgerBlue;
@@ -310,6 +345,8 @@ namespace NinjaTrader.NinjaScript.Indicators
                 {
                     Print("GEX footprint: cannot read " + logPath + ": " + e.Message);
                 }
+                liveDir = Path.Combine(Path.GetDirectoryName(LevelsFile) ?? "", "live");
+                liveWritten = new Dictionary<string, HashSet<string>>();
             }
             else if (State == State.Terminated)
                 DisposeDx();
@@ -338,6 +375,9 @@ namespace NinjaTrader.NinjaScript.Indicators
             }
             if (IsFirstTickOfBar && CurrentBar > 1)
                 Finish(CurrentBar - 1);  // every trade of the bar before is in
+            if (State == State.Realtime && LiveFiles && BarsPeriod.BarsPeriodType == BarsPeriodType.Minute
+                && DateTime.UtcNow - nowWritten >= NowEvery)
+                WriteNow();
         }
 
         private void OnTrade()
@@ -385,13 +425,94 @@ namespace NinjaTrader.NinjaScript.Indicators
                     if (two != null)
                         found.Add(two);
                 }
-                if (found.Count == 0)
-                    return;
-                marks[index] = found;
+                if (found.Count > 0)
+                    marks[index] = found;
             }
-            if (BarsPeriod.BarsPeriodType == BarsPeriodType.Minute)
-                foreach (FootprintAbsorption mark in found)
-                    CheckLevel(index, bar, mark);
+            if (BarsPeriod.BarsPeriodType != BarsPeriodType.Minute)
+                return;
+            WriteBar(index, bar);
+            foreach (FootprintAbsorption mark in found)
+                CheckLevel(index, bar, mark);
+        }
+
+        private DateTime StartNy(int index)
+        {
+            DateTime closeNy = TimeZoneInfo.ConvertTime(Bars.GetTime(index), NinjaTrader.Core.Globals.GeneralOptions.TimeZoneInfo, newYork);
+            return closeNy.AddMinutes(-BarsPeriod.Value);
+        }
+
+        private string LivePath(string suffix)
+        {
+            return Path.Combine(liveDir, Instrument.MasterInstrument.Name + "_" + BarsPeriod.Value.ToString(CI) + "m_" + suffix + ".csv");
+        }
+
+        /// <summary>Append a finished bar to its trading day's live file, once (a reload finishes the same bars again).</summary>
+        private void WriteBar(int index, FootprintBar bar)
+        {
+            if (!LiveFiles)
+                return;
+            DateTime startNy = StartNy(index);
+            string line = FootprintMath.BarLine(startNy, newYork.GetUtcOffset(startNy), Bars.GetOpen(index), Bars.GetHigh(index),
+                Bars.GetLow(index), Bars.GetClose(index), Bars.GetVolume(index), bar.Buy, bar.Sell);
+            string path = LivePath(FootprintMath.TradingDay(startNy).ToString("yyyy-MM-dd", CI));
+            string key = line.Substring(0, line.IndexOf(','));
+            lock (FileLock)
+            {
+                try
+                {
+                    HashSet<string> written;
+                    if (!liveWritten.TryGetValue(path, out written))
+                    {
+                        written = new HashSet<string>();
+                        if (File.Exists(path))
+                            foreach (string l in File.ReadAllLines(path).Skip(1))
+                                written.Add(l.Split(',')[0]);
+                        liveWritten[path] = written;
+                    }
+                    if (written.Contains(key))
+                        return;
+                    Directory.CreateDirectory(liveDir);
+                    File.AppendAllText(path, (File.Exists(path) ? "" : LiveHeader + Environment.NewLine) + line + Environment.NewLine);
+                    written.Add(key);
+                }
+                catch (Exception e)
+                {
+                    Print("GEX footprint: cannot write " + path + ": " + e.Message);
+                }
+            }
+        }
+
+        /// <summary>Rewrite the _now file: the last price, bid, ask and the bar still forming.</summary>
+        private void WriteNow()
+        {
+            nowWritten = DateTime.UtcNow;
+            double buy = 0, sell = 0;
+            lock (sync)
+            {
+                FootprintBar bar;
+                if (bars.TryGetValue(CurrentBar, out bar))
+                {
+                    buy = bar.Buy;
+                    sell = bar.Sell;
+                }
+            }
+            DateTime nowNy = TimeZoneInfo.ConvertTimeFromUtc(nowWritten, newYork), startNy = StartNy(CurrentBar);
+            string line = FootprintMath.Stamp(nowNy, newYork.GetUtcOffset(nowNy)) + "," + Num(Close[0]) + "," + Num(GetCurrentBid()) + ","
+                + Num(GetCurrentAsk()) + "," + FootprintMath.BarLine(startNy, newYork.GetUtcOffset(startNy), Open[0], High[0], Low[0],
+                Close[0], Volume[0], buy, sell);
+            string path = LivePath("now");
+            try
+            {
+                Directory.CreateDirectory(liveDir);
+                File.WriteAllText(path, NowHeader + Environment.NewLine + line + Environment.NewLine);
+                nowFailed = false;
+            }
+            catch (Exception e)
+            {
+                if (!nowFailed)
+                    Print("GEX footprint: cannot write " + path + ": " + e.Message);
+                nowFailed = true;  // retried every second; say it once
+            }
         }
 
         private long CloseTick(int index)
@@ -676,6 +797,9 @@ namespace NinjaTrader.NinjaScript.Indicators
 
         [Display(Name = "Log absorption at GEX levels", Description = "Append them to absorption.csv next to the levels file, for review.py", Order = 7, GroupName = "GEX")]
         public bool LogAbsorption { get; set; }
+
+        [Display(Name = "Write live bars", Description = "Save every finished bar (price, buys, sells, delta) and, each second, the last price to the live folder next to the levels file", Order = 8, GroupName = "GEX")]
+        public bool LiveFiles { get; set; }
 
         [XmlIgnore]
         [Display(Name = "Buyers", Order = 1, GroupName = "Colors")]

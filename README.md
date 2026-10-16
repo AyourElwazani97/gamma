@@ -267,6 +267,12 @@ Often the selling and the failure come in two different bars, so there is also *
 
 When absorption happens **at a GEX level** in the regular session (within 0.02% of it, like a touch in the strategy), the label names the level (`ABSORB 0DTE Put Wall 6650`) and NinjaTrader alerts. It is also logged to `history/absorption.csv`, and `review.py` paper-trades it in the setup scoreboard (rows `Absorption (1 bar)` and `Absorption (2 bars)`). Leave the footprint chart open during the session so the signals get logged, and commit `history/` as usual. It's a **test signal**: watch it, don't trade it, until it has a track record.
 
+**Live bars.** Yahoo's free 5-minute bars run about 10 minutes late, too late to talk about a trade while it's on. So the footprint also writes what the chart sees to `history/live/` (setting *Write live bars*, on by default):
+- `ES_5m_2026-10-16.csv`: every finished bar of that trading day (the evening session from 18:00 NY counts for the next day, like `history/bars`): `Datetime,Open,High,Low,Close,Volume,Buy,Sell,Delta`, with Yahoo's columns first and the bar's start time in New York. Commit these with `history/`: Yahoo bars have no delta, so this is the only delta history we keep.
+- `ES_5m_now.csv`: one line, rewritten every second in real time: the last price, bid, ask and the bar still forming. It's in `.gitignore`.
+
+The file names use the chart's instrument and bar size (`MES_1m_...` on a 1-minute MES chart). It keeps writing while the chart is minimized or on another tab.
+
 **Install once**
 1. Copy `GexFootprint.cs` into `Documents\NinjaTrader 8\bin\Custom\Indicators` (`GexFailedBreakout.cs` must be installed too, it reads the levels).
 2. NinjaScript Editor → **F5**.

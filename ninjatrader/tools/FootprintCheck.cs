@@ -55,6 +55,17 @@ static class FootprintCheck
         Console.WriteLine(Two(sold, 101, Even(97, 108, 97, 100, 0, 50), 107, 200));  // the second bar kept selling
         Console.WriteLine(Two(sold, 115, Even(97, 108, 105, 108, 50, 0), 107, 200));  // the first bar closed in its upper half
         Console.WriteLine(Two(Even(100, 120, 116, 120, 100, 0), 119, Even(112, 123, 112, 115, 0, 50), 113, 200));  // the mirror at the high
+
+        Console.WriteLine("day " + string.Join(" ", new[] {
+            new DateTime(2026, 10, 16, 13, 20, 0),  // regular session
+            new DateTime(2026, 10, 15, 18, 0, 0),  // evening session: the next day
+            new DateTime(2026, 10, 15, 17, 55, 0),
+            new DateTime(2026, 10, 18, 18, 0, 0),  // Sunday evening: Monday
+        }.Select(t => FootprintMath.TradingDay(t).ToString("MM-dd"))));
+        Console.WriteLine("line " + FootprintMath.BarLine(new DateTime(2026, 10, 16, 13, 20, 0), TimeSpan.FromHours(-4),
+            7697.5, 7704.75, 7695.5, 7704.25, 34506, 18007, 16499));
+        Console.WriteLine("line " + FootprintMath.BarLine(new DateTime(2026, 12, 1, 9, 30, 0), TimeSpan.FromHours(-5),
+            7800, 7801, 7799.25, 7800.5, 10, 4, 6));  // winter time, negative delta
     }
 
     static string Two(FootprintBar first, long firstClose, FootprintBar second, long secondClose, double averageDelta)

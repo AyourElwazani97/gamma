@@ -111,4 +111,7 @@ def test_footprint_math(ntcheck, tmp_path):
         "two none",  # second bar kept selling
         "two none",  # first bar closed in its upper half
         "two high 120-123 500",
+        "day 10-16 10-16 10-15 10-19",  # the evening session from 18:00 goes to the next day's file
+        "line 2026-10-16 13:20:00-04:00,7697.5,7704.75,7695.5,7704.25,34506,18007,16499,1508",
+        "line 2026-12-01 09:30:00-05:00,7800,7801,7799.25,7800.5,10,4,6,-2",
     ]
