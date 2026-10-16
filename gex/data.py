@@ -23,6 +23,7 @@ class Chain:
     iv30: float | None
     options: pd.DataFrame  # root, expiry, type, strike, iv, oi, bid, ask, multiplier
     price_time: pd.Timestamp | None = None  # UTC time of `spot`
+    close: float | None = None  # last regular-session close; ETFs trade around it pre/post-market
 
 
 def session_date(asof):
@@ -91,6 +92,7 @@ def parse_chain(raw, ticker):
         iv30=data.get("iv30"),
         options=options.loc[live].reset_index(drop=True),
         price_time=pd.Timestamp(last_trade, tz=NEW_YORK).tz_convert("UTC") if last_trade else None,
+        close=float(data["close"]) if data.get("close") else None,
     )
 
 

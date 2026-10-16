@@ -80,6 +80,14 @@ def test_index_closed_when_its_price_is_the_last_close(ndx_raw):
     assert index_closed(parse_chain(ndx_raw, "_NDX")) is True
 
 
+def test_close_kept_apart_from_the_current_price():
+    # Pre-market SPY trades move current_price; close stays the last regular-session close
+    raw = raw_chain([opt("SPY261016C00775000")], spot=773.08)
+    raw["data"]["close"] = 771.79
+    assert parse_chain(raw, "SPY").close == pytest.approx(771.79)
+    assert parse_chain(raw_chain([opt("SPY261016C00775000")]), "SPY").close is None
+
+
 def test_index_not_called_closed_without_a_price_time(ndx_raw):
     del ndx_raw["data"]["last_trade_time"]
     chain = parse_chain(ndx_raw, "_NDX")

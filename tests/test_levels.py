@@ -150,6 +150,17 @@ def test_etf_conversion_keeps_dollar_gamma():
     assert converted == pytest.approx(direct)
 
 
+def test_etf_strikes_scale_by_the_closes_while_the_index_is_closed():
+    # Before the open SPX sits at Thursday's close while SPY already trades pre-market
+    index = chain_of(make_opts([("C", 7740, 1, 0.15, 10)]), spot=7744.06)
+    index.price_time = ASOF - pd.Timedelta(hours=17)
+    etf = chain_of(make_opts([("C", 775, 10, 0.15, 10)]), spot=773.08, ticker="SPY")
+    etf.close = 771.79
+
+    etf_row = combine(index, etf).query("source == 'etf'").iloc[0]
+    assert etf_row["strike"] == pytest.approx(775 * 7744.06 / 771.79)
+
+
 def test_combine_computes_time_from_chain_timestamp():
     index = chain_of(make_opts([("C", 7650, 1, 0.15, 2)]), spot=7651.54)
     opts = combine(index)

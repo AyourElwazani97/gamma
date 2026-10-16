@@ -4,7 +4,7 @@ from datetime import date
 import numpy as np
 import pandas as pd
 
-from gex.data import NEW_YORK, OPEN, session_date
+from gex.data import NEW_YORK, OPEN, index_closed, session_date
 from gex.greeks import bs_gamma, dollar_gamma
 
 PROFILE_RANGE = 0.10  # gamma profile / flip search: spot +- 10%
@@ -56,7 +56,9 @@ def combine(index_chain, etf_chain=None):
     """
     frames = [index_chain.options.assign(source="index")]
     if etf_chain is not None and not etf_chain.options.empty:
-        ratio = index_chain.spot / etf_chain.spot
+        # While the index sits at its close, the ETF's price is a pre/post-market trade: pair closes
+        closed = index_closed(index_chain) and etf_chain.close
+        ratio = index_chain.spot / (etf_chain.close if closed else etf_chain.spot)
         etf = etf_chain.options.assign(source="etf")
         etf["strike"] = etf["strike"] * ratio
         etf["multiplier"] = etf["multiplier"] / ratio
