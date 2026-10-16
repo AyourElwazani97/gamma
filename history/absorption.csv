@@ -2,3 +2,4 @@ product,time_ny,minutes,bars,direction,level,level_price,low,high,close,effort,b
 ES,2026-10-15 09:35,5,2,long,Expected Move Low,7727.75,7725.5,7745.5,7745,539,39195,727
 ES,2026-10-15 09:40,5,2,short,Magnet 2,7749,7738.25,7747.75,7741.5,727,34066,-1020
 ES,2026-10-15 09:55,5,2,long,Magnet 3 + 0DTE Put Wall,7719,7717.25,7728.5,7727.75,1444,31147,495
+ES,2026-10-16 13:20,5,2,long,Put Wall,7697.5,7695.5,7704.75,7704.25,3250,34506,1508
